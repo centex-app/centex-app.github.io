@@ -7,6 +7,9 @@
 //   desde  primer día que interesa (AAAA-MM-DD); sin él, el último mes
 // Respuesta: {"q", "yahoo", "nombre", "moneda": "EUR"|"USD", "precios": {"AAAA-MM-DD": 12.34, ...}}
 // Va en euros o dólares; si cotiza en otra moneda (libras, francos suizos…) se pasa a euros con el cambio de cada día.
+//
+// Solo responde a la propia app (y a localhost, para probar): así otras webs no pueden gastar el cupo gratuito de Cloudflare.
+// Otras direcciones permitidas, si hacen falta, van en la variable ORIGENES_EXTRA de Cloudflare (separadas por comas), no aquí.
 
 const UA = 'Mozilla/5.0 (compatible; centex-precios)';
 const ISIN = /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/;
@@ -14,9 +17,11 @@ const BOLSAS = { NASDAQ: '', NYSE: '', AMEX: '', NYSEARCA: '', BME: '.MC', LON: 
   FRA: '.F', EPA: '.PA', AMS: '.AS', EBR: '.BR', BIT: '.MI', SWX: '.SW', HKEX: '.HK', TSE: '.T', TSX: '.TO' };
 const CENTIMOS = { GBp: ['GBP', 100], GBX: ['GBP', 100], ZAc: ['ZAR', 100], ILA: ['ILS', 100] };   // cotizan en céntimos de esa moneda
 
-const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: {
-  'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*',
-  'cache-control': status === 200 ? 'public, max-age=3600' : 'no-store' } });
+const ORIGENES = ['https://centex-app.github.io'];
+const permitido = (o, extra) => ORIGENES.includes(o) || extra.includes(o) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
+const json = (o, status, origen) => new Response(JSON.stringify(o), { status, headers: Object.assign({
+  'content-type': 'application/json; charset=utf-8', 'vary': 'Origin',
+  'cache-control': status === 200 ? 'public, max-age=3600' : 'no-store' }, origen ? { 'access-control-allow-origin': origen } : {}) });
 
 async function yahoo(url) {
   const r = await fetch(url, { headers: { 'user-agent': UA, accept: 'application/json' } });
@@ -40,34 +45,37 @@ async function cierres(simbolo, desde) {
 }
 
 export default {
-  async fetch(req) {
-    if (req.method === 'OPTIONS') return new Response(null, { headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET' } });
+  async fetch(req, env) {
+    const origen = req.headers.get('origin') || '', extra = String((env && env.ORIGENES_EXTRA) || '').split(',').map(x => x.trim()).filter(Boolean);
+    if (!permitido(origen, extra)) return json({ error: 'Este servicio es solo para la app Centex.' }, 403, null);
+    if (req.method === 'OPTIONS') return new Response(null, { headers: { 'access-control-allow-origin': origen, 'access-control-allow-methods': 'GET', 'vary': 'Origin' } });
+    const out = (o, status = 200) => json(o, status, origen);
     const u = new URL(req.url), hoy = new Date().toISOString().slice(0, 10);
     const q = (u.searchParams.get('q') || '').trim().toUpperCase();
     let desde = u.searchParams.get('desde') || '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || desde > hoy) desde = new Date(Date.now() - 31 * 864e5).toISOString().slice(0, 10);
     if (desde < '2000-01-01') desde = '2000-01-01';
-    if (!/^[A-Z0-9.\-^=:]{1,24}$/.test(q)) return json({ error: 'Pon un ISIN o un ticker en ?q=' }, 400);
+    if (!/^[A-Z0-9.\-^=:]{1,24}$/.test(q)) return out({ error: 'Pon un ISIN o un ticker en ?q=' }, 400);
     try {
       let simbolo = q;
       if (q.includes(':')) { const [b, t] = q.split(':'); simbolo = t + (BOLSAS[b] || ''); }
       else if (ISIN.test(q)) simbolo = await buscar(q);
-      if (!simbolo) return json({ error: 'No encuentro ' + q }, 404);
+      if (!simbolo) return out({ error: 'No encuentro ' + q }, 404);
       const c = await cierres(simbolo, desde);
-      if (!c || !Object.keys(c.ps).length) return json({ error: 'Sin precios para ' + q }, 404);
+      if (!c || !Object.keys(c.ps).length) return out({ error: 'Sin precios para ' + q }, 404);
       let moneda = c.moneda, ps = c.ps;
       if (moneda !== 'EUR' && moneda !== 'USD') {
         const [base, f] = CENTIMOS[moneda] || [moneda, 1];
         const fx = await cierres(base + 'EUR=X', desde);
-        if (!fx || !Object.keys(fx.ps).length) return json({ error: 'No puedo pasar ' + moneda + ' a euros' }, 502);
-        const fd = Object.keys(fx.ps).sort(), out = {};
-        for (const d of Object.keys(ps)) { let k = fd[0]; for (const x of fd) { if (x <= d) k = x; else break; } out[d] = ps[d] / f * fx.ps[k]; }
-        ps = out; moneda = 'EUR';
+        if (!fx || !Object.keys(fx.ps).length) return out({ error: 'No puedo pasar ' + moneda + ' a euros' }, 502);
+        const fd = Object.keys(fx.ps).sort(), enEur = {};
+        for (const d of Object.keys(ps)) { let k = fd[0]; for (const x of fd) { if (x <= d) k = x; else break; } enEur[d] = ps[d] / f * fx.ps[k]; }
+        ps = enEur; moneda = 'EUR';
       }
       for (const d in ps) ps[d] = Math.round(ps[d] * 1e4) / 1e4;
-      return json({ q, yahoo: simbolo, nombre: c.nombre, moneda, precios: ps });
+      return out({ q, yahoo: simbolo, nombre: c.nombre, moneda, precios: ps });
     } catch (e) {
-      return json({ error: String((e && e.message) || e) }, 502);
+      return out({ error: String((e && e.message) || e) }, 502);
     }
   }
 };
