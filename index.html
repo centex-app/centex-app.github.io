@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Centex</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Centex: tus gastos, tu cartera y tus objetivos de ahorro en un solo sitio.">
+<meta name="theme-color" content="#f5f6f8" id="metaTheme">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Centex">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <a class="brand" href="#/inicio" aria-label="Centex, ir al inicio"><span class="logo" aria-hidden="true"></span><span class="brand-name">Centex</span></a>
+    <button class="icon-btn" data-act="goSettings" aria-label="Ajustes" id="gearTop"></button>
+  </header>
+
+  <nav class="nav" aria-label="Secciones">
+    <a class="brand side" href="#/inicio" aria-label="Centex, ir al inicio"><span class="logo" aria-hidden="true"></span><span class="brand-name">Centex</span></a>
+    <div class="nav-items" id="navItems"></div>
+    <button class="nav-set" data-act="goSettings" id="gearSide"></button>
+  </nav>
+
+  <main id="view" tabindex="-1"></main>
+
+  <button class="fab" id="fab" data-act="fab"><span class="fab-ic" id="fabIc"></span><span class="fab-tx" id="fabTx"></span></button>
+</div>
+
+<dialog id="sheet" aria-labelledby="sheetTitle">
+  <div class="sheet-head">
+    <h2 id="sheetTitle"></h2>
+    <button class="icon-btn" data-act="closeSheet" aria-label="Cerrar" id="sheetX"></button>
+  </div>
+  <form id="sheetForm" novalidate><div id="sheetBody"></div></form>
+</dialog>
+
+<div id="tip" role="tooltip"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="fileIn" accept="application/json,.json" hidden>
+
+<script src="app.js"></script>
+</body>
+</html>
