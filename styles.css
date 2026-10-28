@@ -141,7 +141,8 @@ svg text.lab{fill:var(--ink2);font-size:12.5px;font-weight:700}
 .fld>label,.fld>.lb{font-size:12.5px;font-weight:700;color:var(--ink2)}
 .fld input,.fld select{height:48px;border:1.5px solid var(--line2);border-radius:12px;background:var(--bg);padding:0 14px;min-width:0;width:100%;font-weight:600;-webkit-appearance:none;appearance:none}
 .fld select{background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 20px) 21px,calc(100% - 15px) 21px;background-size:5px 5px;background-repeat:no-repeat;padding-right:36px}
-.fld input:focus,.fld select:focus{outline:2px solid var(--ink);outline-offset:0;border-color:transparent}
+.fld textarea{min-height:120px;border:1.5px solid var(--line2);border-radius:12px;background:var(--bg);padding:12px 14px;width:100%;font-weight:600;resize:vertical}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:2px solid var(--ink);outline-offset:0;border-color:transparent}
 .fld input[type=date],.fld input[type=month]{display:block;min-height:48px}
 .fld .help{font-size:12px;color:var(--muted);font-weight:600}
 .amount input{height:64px;font-size:30px;font-weight:800;letter-spacing:-.03em;text-align:left;border-radius:14px}

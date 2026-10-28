@@ -17,7 +17,7 @@ Todos los textos de la app y los comentarios del código están en español.
 Cada cambio de la app lleva subida de versión, en **dos sitios** (deben coincidir):
 
 1. `sw.js` → `const VERSION = 'centex-vX.Y.Z';` (si no cambia, los móviles siguen con la versión vieja guardada).
-2. `app.js` → en `vAjustes()`, la etiqueta `Centex · versión X.Y.Z` que se ve al final de Ajustes.
+2. `app.js` → `const VERSION_APP = 'X.Y.Z';` (sale al final de Ajustes y va en los mensajes de contacto). La fecha de la etiqueta de Ajustes se cambia a mano.
 
 Mensaje de commit habitual: `vX.Y.Z: qué cambia, en lenguaje sencillo`.
 
@@ -32,12 +32,15 @@ Mensaje de commit habitual: `vX.Y.Z: qué cambia, en lenguaje sencillo`.
 - La app pide a ese programa los precios de los fondos con ISIN, las posiciones con ticker y el índice de comparación (`loadVivo`, como mucho cada 6 horas). Para fondos usa `fp()`, para Seguimiento `autoPrecio()`.
 - Cartera: cada fondo tiene `compras` [{f, venta, imp, part, est, plan}] y `plan` (aportación periódica). Las compras sin precio quedan pendientes hasta que se publica (`resolver`); las periódicas se generan solas (`generarPlanes`). Los datos antiguos (`movs`, `cartera[].ap`) se convierten con `migrarFondos`.
 - Comparar con un índice (`REFS0`: MSCI World = `EUNL.DE`, S&P 500 = `SXR8.DE`, ETF de acumulación en euros; más los de `ajustes.refs`): Escenarios → Comparar (`cmpHTML`). `simulaRef` invierte en el índice los mismos euros, las mismas fechas, que cada compra. Si el índice va en dólares se pasa a euros con `EURUSD=X`.
+- Contador de visitas: GoatCounter (`centex-app.goatcounter.com`, script en `index.html`; `contar()` cuenta cada pantalla). Contacto: formulario en Ajustes («¿Ideas o algún fallo?», `sheetContacto`) que envía a Formspree (`FORM_URL`), y Formspree lo reenvía al correo de Centex. Privacidad y aviso legal: en Ajustes; si cambia lo que sale a internet, hay que cambiar ese texto.
+- Pendiente: los fondos van 1-4 días por detrás de MyInvestor porque Yahoo publica tarde; añadir otra fuente al programa de precios.
 - Pendiente de limpiar: `loadPrecios`/`loadAcciones` aún piden `data/precios.json` y `data/acciones.json`, que en este repositorio no existen (vienen de la versión personal anterior); fallan sin más y no afectan.
 
 ## Datos en localStorage
 
 - `centex.v1` – datos de la persona (gastos, `habOff`, `habMan`, cartera antigua, carteras, fondos, seguimiento, secciones, objetivos, ajustes). Pasa por `norm()` al cargar: cualquier campo nuevo debe tener valor por defecto en `blank()`/`norm()` para no romper datos ya guardados ni copias de seguridad antiguas.
 - `centex.vivo` – precios que devuelve el programa de Cloudflare, por ISIN o ticker.
+- `centex.modo` = `demo` y `centex.demo` – modo de prueba (`DEMO`): la app usa `centex.demo` en vez de `centex.v1`, con los datos de `demoData()`. Al salir se borran y vuelven los datos de verdad.
 - `centex.logos` – caché de logos de empresas.
 - `centex.esc` – última pestaña y valores de Escenarios.
 

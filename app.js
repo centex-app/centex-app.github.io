@@ -1,8 +1,8 @@
 'use strict';
 /* =====================================================================
    Centex · lógica de la app
-   Todo se guarda en este dispositivo (localStorage). A internet solo se piden los logos de empresas (desactivable en Ajustes)
-   y los precios de los fondos y acciones que sigues (solo su ISIN o ticker, nunca importes).
+   Todo se guarda en este dispositivo (localStorage). A internet solo se piden los logos de empresas (desactivable en Ajustes), los precios de los fondos y acciones
+   que sigues (solo su ISIN o ticker, nunca importes) y un contador de visitas anónimo (GoatCounter, sin cookies).
    Estructura del archivo:
      1. utilidades      4. gráficos        7. eventos
      2. datos           5. pantallas       8. arranque
@@ -67,7 +67,9 @@ const CAT_ICON = { Comida: 'pizza', Ocio: 'ticket', Transporte: 'bus', Compras: 
 const catIcon = (c, sm) => '<svg class="ic' + (sm ? ' sm' : '') + '" style="color:' + catColor(c) + '" viewBox="0 0 24 24" aria-hidden="true">' + ICON[CAT_ICON[c] || 'dots'] + '</svg>';
 
 /* ---------- 2. datos ---------- */
-const KEY = 'centex.v1';
+// En el modo de prueba se usa otro almacén (centex.demo): los datos de verdad (centex.v1) no se tocan.
+const DEMO = (() => { try { return localStorage.getItem('centex.modo') === 'demo'; } catch (e) { return false; } })();
+const KEY = DEMO ? 'centex.demo' : 'centex.v1';
 // Secciones de Seguimiento: por defecto Acciones y Fondos; el usuario puede añadir y borrar las suyas.
 const SECS0 = () => [{ id: 'accion', nombre: 'Acciones' }, { id: 'fondo', nombre: 'Fondos' }];
 function cleanSecs(a) {
@@ -643,13 +645,41 @@ const route = () => { const r = (location.hash || '').replace(/^#\/?/, ''); retu
 const vh = (t, sub, r) => '<div class="vh"><div><h1>' + t + '</h1>' + (sub ? '<p class="sub">' + sub + '</p>' : '') + '</div>' + (fabOf(r) ? '<button class="btn" data-act="' + fabOf(r)[1] + '">' + icon('plus') + fabOf(r)[0] + '</button>' : '') + '</div>';
 const deltaPill = (v, p) => v == null ? '' : '<span class="pill ' + (v > 0 ? 'good' : v < 0 ? 'bad' : 'flat') + '">' + (v > 0 ? '▲' : v < 0 ? '▼' : '') + ' ' + sgn(v) + eur(Math.abs(v)) + (p != null ? ' · ' + pct(p) : '') + '</span>';
 
+// Datos de ejemplo del modo de prueba: gastos de las últimas semanas (con fechas de hoy hacia atrás), una cartera con aportación
+// periódica desde marzo de 2026 (la app apunta sola las compras que faltan), acciones en seguimiento con su precio real de entrada y objetivos.
+function demoData() {
+  const hoy = new Date(), dia = n => new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - n), g = [];
+  const add = (n, desc, cat, cant, pago) => g.push({ id: 'dg' + g.length, fecha: dia(n).toLocaleDateString('sv-SE'), desc, cat, cant: Math.round(cant * 100) / 100, pago: pago || 'Tarjeta' });
+  for (let n = 0; n < 62; n++) {
+    const dw = dia(n).getDay();
+    if (dw >= 1 && dw <= 5) { if (n % 3 !== 1) add(n, 'Café', 'Comida', 1.5, n % 2 ? 'Efectivo' : 'Tarjeta'); add(n, 'Bus', 'Transporte', 1.3); if (n % 4 === 0) add(n, 'Menú del día', 'Comida', 12.5); }
+    if (dw === 6) { add(n, 'Mercadona', 'Comida', 38 + (n % 5) * 4.3); add(n, n % 14 < 7 ? 'Cine' : 'Cena con amigos', 'Ocio', n % 14 < 7 ? 9 : 24); }
+    if (n === 3 || n === 33) add(n, 'Gimnasio', 'Otros', 34.9);
+    if (n === 9) add(n, 'Zapatillas', 'Compras', 69.99);
+    if (n === 40) add(n, 'Regalo de cumpleaños', 'Compras', 25);
+  }
+  const s = (id, grupo, nombre, ticker, ent, motivo) => ({ id, tipo: 'accion', grupo, nombre, ticker, fecha: '2026-03-02', precioEntrada: ent, precioActual: null, motivo, web: '' });
+  return {
+    gastos: g, habOff: [], habMan: [], cartera: [], carteras: [{ id: 'principal', nombre: 'Mi bróker' }],
+    fondos: [
+      { id: 'f_dw', isin: 'IE000ZYRH0Q7', nombre: 'iShares Developed World Index', c: 'principal', compras: [{ id: 'dc1', f: '2026-03-03', imp: 2000, part: null, est: 'part' }], plan: { imp: 150, dia: 5, desde: '2026-04-01', hasta: null, saltar: [] } },
+      { id: 'f_em', isin: 'IE0031786696', nombre: 'Vanguard Emerging Markets', c: 'principal', compras: [{ id: 'dc2', f: '2026-03-02', imp: 500, part: null, est: 'part' }], plan: { imp: 50, dia: 5, desde: '2026-04-01', hasta: null, saltar: [] } }],
+    seg: [s('ds1', 'Tecnología', 'Apple', 'NASDAQ:AAPL', 264.72, 'Ecosistema y servicios con márgenes altos'), s('ds2', 'Tecnología', 'NVIDIA', 'NASDAQ:NVDA', 182.48, 'Chips para inteligencia artificial'),
+      s('ds3', 'Consumo', 'Inditex', 'BME:ITX', 54.06, 'Marca fuerte y sin deuda'), s('ds4', 'Banca', 'Banco Santander', 'BME:SAN', 10.268, 'Negocio repartido por muchos países')],
+    secciones: SECS0(), objetivos: [{ id: 'do1', nombre: 'Viaje a Japón', meta: 2500, ahorrado: 900, fecha: addM(mk(todayISO()), 8) + '-28' }, { id: 'do2', nombre: 'Colchón para imprevistos', meta: 3000, ahorrado: 1850, fecha: null }],
+    ajustes: { tema: 'auto', ultimaCopia: todayISO(), logos: true, cmp: 'EUNL.DE', refs: [] }
+  };
+}
+const demoBanner = () => '<div class="banner" style="background:var(--s1);color:#fff"><span><b>Modo de prueba:</b> son datos de ejemplo. Lo que cambies aquí no toca tus datos.</span><button class="btn sm" style="background:#fff;color:#111" data-act="demoOut">Salir</button></div>';
 function vInicio() {
-  const has = D.gastos.length || D.cartera.length || D.seg.length || D.objetivos.length;
+  const has = D.gastos.length || D.fondos.length || D.seg.length || D.objetivos.length;
   const hoy = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
   if (!has) {
     return { html: '<div class="page">' + vh('Bienvenido', hoy, 'inicio') +
-      '<div class="card welcome"><h2>Tu dinero, en un solo sitio</h2><p>Apunta tus gastos, sigue tu cartera y marca objetivos de ahorro. Tus datos se guardan en este dispositivo y nadie más los ve. Solo se piden online los logos de empresas (puedes quitarlos en Ajustes) y los precios de tus fondos y acciones, sin tus importes.</p>' +
-      '<div class="btn-row"><button class="btn" data-act="addGasto">' + icon('plus') + 'Apuntar mi primer gasto</button><button class="btn ghost" data-act="pickFile">Importar mis datos</button></div></div></div>' };
+      '<div class="card welcome"><h2>Tu dinero, en un solo sitio</h2><p>Centex es una app gratuita para ordenar tus finanzas: apunta tus gastos, sigue tus fondos y acciones con precios que se actualizan solos y mira si lo estás haciendo mejor o peor que el mercado.</p>' +
+      '<ul class="steps"><li><b>Tus datos se quedan en este móvil.</b> Sin cuentas ni registros: nadie más los ve.</li><li><b>Gastos:</b> en qué se te va el dinero cada mes, y lo que repites, con un toque.</li><li><b>Cartera:</b> cuánto valen hoy tus fondos y cuánto ganas.</li><li><b>Escenarios:</b> cuánto podría crecer tu dinero y cómo vas frente al MSCI World.</li></ul>' +
+      '<div class="btn-row" style="margin-top:14px"><button class="btn" data-act="demoIn">Probar con datos de ejemplo</button><button class="btn ghost" data-act="addGasto">' + icon('plus') + 'Empezar con mis datos</button></div>' +
+      '<p class="sub" style="margin:12px 0 0">¿Ya usabas Centex? <button class="link" data-act="pickFile">Importa tu copia de seguridad</button>.</p></div></div>' };
   }
   const cur = mk(todayISO()), prev = addM(cur, -1), day = +todayISO().slice(8, 10);
   const t = totMonth(cur), nCur = D.gastos.filter(x => mk(x.fecha) === cur).length;
@@ -685,7 +715,7 @@ function vInicio() {
   const so = sel => opts.map(k => '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' + esc(mLabel(k)) + '</option>').join('');
   const ta = totMonth(ui.cmpA), tb = ui.cmpB ? totMonth(ui.cmpB) : 0;
   const cmpSum = ui.cmpB ? '<b>' + esc(mLabel(ui.cmpA)) + '</b> ' + eur(ta) + ' &nbsp;·&nbsp; <b>' + esc(mLabel(ui.cmpB)) + '</b> ' + eur(tb) + ' &nbsp;·&nbsp; <span class="' + (ta > tb ? 'up-t' : ta < tb ? 'dn-t' : '') + '">' + (ta > tb ? '▲ ' : ta < tb ? '▼ ' : '') + sgn(ta - tb) + eur(Math.abs(ta - tb)) + (tb > 0 ? ' (' + pct(((ta - tb) / tb) * 100) + ')' : '') + '</span>' : '<b>' + esc(mLabel(ui.cmpA, true)) + '</b> ' + eur(ta);
-  const bkp = backupDue() ? '<div class="banner"><span>' + (D.ajustes.ultimaCopia ? 'Hace más de un mes que no haces copia de seguridad.' : 'Aún no has hecho ninguna copia de seguridad de tus datos.') + '</span><button class="btn sm ghost" data-act="export">Hacer copia</button></div>' : '';
+  const bkp = bkpBanner();
 
   const html = '<div class="page">' + vh('Inicio', hoy, 'inicio') + hero + bkp +
     '<div class="grid2">' + cartCard + goalCard + '</div>' +
@@ -697,13 +727,15 @@ function vInicio() {
   return { html, after() { drawStack($('#chMeses'), months); drawCompare($('#chCmp'), ui.cmpA, ui.cmpB); } };
 }
 
+// Aviso de copia de seguridad: con algo apuntado y sin copia en las últimas dos semanas (en el modo de prueba, nunca).
 function backupDue() {
-  const n = D.gastos.length + D.cartera.length + D.objetivos.length;
-  if (n < 5) return false;
+  const n = D.gastos.length + D.fondos.reduce((a, fo) => a + fo.compras.length, 0) + D.seg.length + D.objetivos.length;
+  if (DEMO || n < 5) return false;
   const u = D.ajustes.ultimaCopia;
   if (!u) return true;
-  return (new Date(todayISO()) - new Date(u)) / 864e5 > 30;
+  return (new Date(todayISO()) - new Date(u)) / 864e5 > 14;
 }
+const bkpBanner = () => (backupDue() ? '<div class="banner"><span>' + (D.ajustes.ultimaCopia ? 'Hace más de dos semanas que no haces copia de seguridad. Tus datos solo están en este móvil.' : 'Aún no has hecho ninguna copia de seguridad. Tus datos solo están en este móvil: si lo pierdes o borras el navegador, se pierden.') + '</span><button class="btn sm ghost" data-act="export">Hacer copia</button></div>' : '');
 
 function gastoRowHTML(x) {
   const c = catColor(x.cat);
@@ -793,7 +825,7 @@ function vGastos() {
   months.sort().reverse();
   if (!ui.gMes || (ui.gMes !== 'todos' && !months.includes(ui.gMes))) ui.gMes = cur;
   const chips = '<div class="chips" role="group" aria-label="Mes">' + [['todos', 'Todos']].concat(months.map(k => [k, mLabel(k)])).map(c => '<button class="chip" data-act="gMes" data-m="' + c[0] + '" aria-pressed="' + (ui.gMes === c[0]) + '">' + esc(c[1]) + '</button>').join('') + '</div>';
-  const html = '<div class="page">' + vh('Gastos', 'Lo que gastas, mes a mes', 'gastos') + chips +
+  const html = '<div class="page">' + vh('Gastos', 'Lo que gastas, mes a mes', 'gastos') + bkpBanner() + chips +
     habCard() +
     '<div class="search">' + icon('search') + '<input id="q" type="search" placeholder="Buscar por descripción o categoría" value="' + esc(ui.q) + '" aria-label="Buscar gastos" autocomplete="off"></div>' +
     '<div id="gList" style="display:flex;flex-direction:column;gap:14px">' + gListHTML() + '</div>' +
@@ -847,7 +879,7 @@ function vCartera() {
     (filas.filter(i => i.val > 0).length > 1 ? '<div class="splitbar" aria-hidden="true">' + filas.map((i, k) => (i.val > 0 ? '<span style="width:' + (i.val / T.val * 100) + '%;background:var(--s' + (k % 5 + 1) + ')"></span>' : '')).join('') + '</div>' : '') +
     '<div class="list">' + filas.map(fila).join('') + '</div></div>'
     : isTot ? '' : '<div class="card"><div class="card-head"><h2>Tus fondos</h2></div><p class="sub" style="margin:0 0 10px">Añade cada fondo con su ISIN y después sus compras (fecha e importe o participaciones). La app busca sola su precio de cada día y calcula cuánto vale tu cartera y cuánto ganas.</p><button class="btn" data-act="addFondo">' + icon('plus') + 'Añadir fondo</button></div>';
-  return { html: '<div class="page">' + vh('Cartera', multi ? 'Tus carteras, plataforma por plataforma' : 'Lo que tienes invertido, al día', 'cartera') + cartChips + cartHead + aviso + sum + porCard + evol + fondos + '</div>',
+  return { html: '<div class="page">' + vh('Cartera', multi ? 'Tus carteras, plataforma por plataforma' : 'Lo que tienes invertido, al día', 'cartera') + cartChips + cartHead + bkpBanner() + aviso + sum + porCard + evol + fondos + '</div>',
     after() { drawEvol($('#chEvol'), serie); } };
 }
 
@@ -1063,9 +1095,17 @@ function vAjustes() {
     '<div class="setrow"><div><b>Restaurar o importar</b><p>Desde un archivo de copia de Centex.</p></div><button class="btn sm ghost" data-act="pickFile">Elegir archivo</button></div>' +
     '<div class="setrow"><div><b>Gastos para Excel</b><p>Un archivo CSV con todos tus gastos.</p></div><button class="btn sm ghost" data-act="exportCsv">Descargar</button></div>' +
     '<div class="setrow"><div><b>Borrar todo</b><p>Elimina todos los datos de este dispositivo.</p></div><button class="btn sm danger" data-act="wipe">Borrar…</button></div></div>' +
+    '<div class="card set"><div class="setrow"><div><b>Modo de prueba</b><p>' + (DEMO ? 'Estás viendo datos de ejemplo. Al salir vuelves a tus datos, tal como los dejaste.' : 'Mira cómo funciona Centex con datos de ejemplo, sin tocar los tuyos.') + '</p></div><button class="btn sm ghost" data-act="' + (DEMO ? 'demoOut">Salir' : 'demoIn">Probar') + '</button></div></div>' +
+    '<details class="card"><summary>Privacidad y aviso legal</summary><div class="body">' +
+      '<p><b>Tus datos son tuyos.</b> Todo lo que apuntas se guarda solo en este dispositivo. Centex no tiene cuentas, ni guarda tus datos en ningún servidor, ni usa cookies.</p>' +
+      '<p><b>Lo único que sale a internet:</b> el ISIN o el ticker de tus fondos y acciones, para buscar su precio (en el servicio de precios de Centex, con datos de Yahoo Finance); los logos de empresas, que se piden a Ticker Logos (puedes quitarlos arriba); y un contador de visitas anónimo (GoatCounter), sin cookies ni datos personales. Nunca se envían tus importes. Si nos escribes desde «¿Ideas o algún fallo?», el mensaje (y tu correo, si lo pones) nos llega a través de Formspree.</p>' +
+      '<p><b>Haz copias.</b> Si borras los datos del navegador o cambias de móvil, lo apuntado se pierde.</p>' +
+      '<p><b>No es asesoramiento financiero.</b> Centex sirve para ordenar tus números. Los precios pueden llegar con retraso o tener errores, y las simulaciones son ejemplos, no promesas. Las decisiones de inversión son solo tuyas.</p>' +
+    '</div></details>' +
+    '<div class="card set"><div class="setrow"><div><b>¿Ideas o algún fallo?</b><p>Cuéntanos qué mejorarías o qué no funciona. Leemos todo.</p></div><button class="btn sm ghost" data-act="contacto">Escribir</button></div></div>' +
     '<div class="card"><h2>Tenerla como una app</h2>' + (standalone ? '<p class="sub" style="margin-bottom:0">Ya estás usando Centex como app.</p>' :
       '<p class="sub">Añádela a tu pantalla de inicio y se abrirá a pantalla completa.</p><ol class="steps"><li><b>iPhone (Safari):</b> botón compartir → «Añadir a pantalla de inicio».</li><li><b>Android (Chrome):</b> menú ⋮ → «Instalar aplicación» o «Añadir a pantalla de inicio».</li></ol>') + '</div>' +
-    '<p style="text-align:center;color:var(--muted);font-size:12.5px;font-weight:600;padding:6px">Centex · versión 1.18 · 28 oct 2026</p></div>' };
+    '<p style="text-align:center;color:var(--muted);font-size:12.5px;font-weight:600;padding:6px">Centex · versión ' + VERSION_APP + ' · 28 oct 2026</p></div>' };
 }
 
 const VIEWS = { inicio: vInicio, gastos: vGastos, cartera: vCartera, seguimiento: vSeg, objetivos: vObj, escenarios: vEsc, ajustes: vAjustes };
@@ -1073,7 +1113,7 @@ const VIEWS = { inicio: vInicio, gastos: vGastos, cartera: vCartera, seguimiento
 function render() {
   const r = route(), v = VIEWS[r]();
   document.querySelectorAll('.nav-link').forEach(a => { if (a.dataset.r === r) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
-  const view = $('#view'); view.innerHTML = v.html; if (v.after) v.after();
+  const view = $('#view'); view.innerHTML = DEMO ? v.html.replace('<div class="page">', '<div class="page">' + demoBanner()) : v.html; if (v.after) v.after();
   hydrateLogos();
   const f = fabOf(r), fab = $('#fab');
   if (f) { fab.hidden = false; fab.dataset.act = f[1]; $('#fabTx').textContent = f[0]; fab.setAttribute('aria-label', f[0]); } else fab.hidden = true;
@@ -1378,6 +1418,30 @@ function sheetImport(data) {
     });
 }
 
+// «¿Ideas o algún fallo?»: el mensaje se envía a Formspree, que lo reenvía al correo de Centex. Va con la versión de la app y el tipo de móvil,
+// para entender los fallos; nunca con datos de la persona.
+const VERSION_APP = '1.19';
+const FORM_URL = 'https://formspree.io/f/mgaayjay';
+function sheetContacto() {
+  openSheet('¿Ideas o algún fallo?',
+    '<div class="form"><div class="fld"><div class="opts" role="radiogroup" aria-label="Qué nos cuentas">' + opt('tipo', 'Idea', true, 'Una idea') + opt('tipo', 'Fallo', false, 'Un fallo') + opt('tipo', 'Otra cosa', false, 'Otra cosa') + '</div></div>' +
+    '<div class="fld"><label for="ctMsg">Mensaje</label><textarea id="ctMsg" name="mensaje" maxlength="3000" placeholder="Si es un fallo, cuéntanos qué hacías y qué pasó."></textarea></div>' +
+    '<div class="fld"><label for="ctMail">Tu correo (opcional)</label><input id="ctMail" name="email" type="email" maxlength="120" autocomplete="email" placeholder="Solo si quieres que te respondamos"></div>' +
+    '<span class="help">Con el mensaje van la versión de la app y el tipo de móvil, para entender los fallos. Nunca tus datos.</span>' +
+    actions('', 'Enviar') + '</div>',
+    fd => {
+      const mensaje = String(fd.get('mensaje') || '').trim(), email = String(fd.get('email') || '').trim(), tipo = String(fd.get('tipo') || 'Otra cosa');
+      if (mensaje.length < 3) return 'Escribe tu mensaje.';
+      if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return 'Ese correo no tiene buena pinta. Puedes dejarlo vacío.';
+      const b = $('#sheetForm button[type="submit"]'); if (b) { b.disabled = true; b.textContent = 'Enviando…'; }
+      fetch(FORM_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ _subject: 'Centex · ' + tipo, tipo, mensaje, email: email || undefined, version: VERSION_APP, movil: navigator.userAgent.slice(0, 200), app: matchMedia('(display-mode: standalone)').matches || navigator.standalone ? 'instalada' : 'navegador' }) })
+        .then(r => { if (!r.ok) throw new Error(r.status); closeSheet(); toast('¡Gracias! Mensaje enviado'); })
+        .catch(() => { if (b) { b.disabled = false; b.textContent = 'Enviar'; } sheetErr('No se ha podido enviar. Revisa tu conexión e inténtalo otra vez.'); });
+      return '';   // la hoja se cierra cuando llega la respuesta
+    });
+  setTimeout(() => { const i = $('#ctMsg'); if (i) i.focus(); }, 60);
+}
 function sheetWipe() {
   openSheet('Borrar todo', '<div class="form"><p style="margin:0;font-weight:600">Se borrarán todos tus gastos, tu cartera, tu seguimiento y tus objetivos de este dispositivo. No se puede deshacer, salvo que tengas una copia de seguridad.</p>' +
     '<div class="sheet-actions"><button type="button" class="btn ghost" data-act="closeSheet">Cancelar</button><button type="button" class="btn danger" data-act="sheetDel" data-kind="all">Borrar todo</button></div></div>');
@@ -1406,6 +1470,9 @@ const ACT = {
   fab() { const f = fabOf(route()); if (f) ACT[f[1]](); },
   addGasto() { sheetGasto(); }, addSeg() { sheetSeg(); }, addObj() { sheetObj(); },
   addCompra(el) { sheetCompra(null, el && el.dataset.f); }, editCompra(el) { sheetCompra(el.dataset.id, el.dataset.f); }, editPlan(el) { sheetPlan(el.dataset.f); },
+  demoIn() { try { localStorage.setItem('centex.demo', JSON.stringify(demoData())); localStorage.setItem('centex.modo', 'demo'); } catch (e) { toast('No he podido abrir el modo de prueba'); return; } contar('modo-prueba'); location.hash = '#/inicio'; location.reload(); },
+  demoOut() { try { localStorage.removeItem('centex.modo'); localStorage.removeItem('centex.demo'); } catch (e) { /* nada */ } location.hash = '#/inicio'; location.reload(); },
+  contacto() { sheetContacto(); },
   avisoOk() { D.ajustes.avisoCompras = false; save(); render(); }, eRango(el) { ui[el.dataset.k === 'kRango' ? 'kRango' : 'eRango'] = el.dataset.r; render(); },
   editGasto(el) { sheetGasto(el.dataset.id); }, editSeg(el) { sheetSeg(el.dataset.id); },
   editObj(el) { sheetObj(el.dataset.id); }, aportar(el) { sheetAportar(el.dataset.id); }, precios() { sheetPrecios(); },
@@ -1498,7 +1565,9 @@ function showTip(e) {
 document.addEventListener('mousemove', showTip);
 document.addEventListener('touchstart', showTip, { passive: true });
 let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(render, 150); });
-window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
+// Contador de visitas anónimo (GoatCounter, sin cookies). Solo cuenta qué pantallas se abren, nunca datos.
+function contar(evento) { try { if (window.goatcounter && window.goatcounter.count) window.goatcounter.count(evento ? { path: evento, event: true } : { path: '/' + route() }); } catch (e) { /* sin contador */ } }
+window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); contar(); });
 
 /* ---------- 8. arranque ---------- */
 function applyTheme() {
