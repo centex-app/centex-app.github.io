@@ -8,6 +8,9 @@
 // Respuesta: {"q", "yahoo", "nombre", "moneda": "EUR"|"USD", "precios": {"AAAA-MM-DD": 12.34, ...}}
 // Va en euros o dólares; si cotiza en otra moneda (libras, francos suizos…) se pasa a euros con el cambio de cada día.
 //
+// Fondos: Yahoo publica su precio con 1-4 días de retraso. El Financial Times lo tiene antes, aunque solo con 2 decimales;
+// por eso se usa solo para los días que Yahoo aún no tiene y si el precio es de 5 o más (así el redondeo es menor del 0,1 %).
+//
 // Solo responde a la propia app (y a localhost, para probar): así otras webs no pueden gastar el cupo gratuito de Cloudflare.
 // Otras direcciones permitidas, si hacen falta, van en la variable ORIGENES_EXTRA de Cloudflare (separadas por comas), no aquí.
 
@@ -33,6 +36,19 @@ async function buscar(isin) {
   const j = await yahoo('https://query2.finance.yahoo.com/v1/finance/search?q=' + isin + '&quotesCount=5&newsCount=0');
   const q = ((j && j.quotes) || []).find(x => x.symbol);
   return q ? q.symbol : null;
+}
+const MESES_EN = { January: 1, February: 2, March: 3, April: 4, May: 5, June: 6, July: 7, August: 8, September: 9, October: 10, November: 11, December: 12 };
+async function ftUltimos(isin, moneda) {   // último mes de precios del FT: {AAAA-MM-DD: precio}; si falla, vacío
+  try {
+    const r = await fetch('https://markets.ft.com/data/funds/tearsheet/historical?s=' + isin + ':' + moneda, { headers: { 'user-agent': UA } });
+    if (!r.ok) return {};
+    const t = await r.text(), ps = {};
+    for (const m of t.matchAll(/<span class="mod-ui-hide-small-below">\w+, (\w+) (\d{1,2}), (\d{4})<\/span>.*?<\/td><td>([\d.,]+)<\/td>/g)) {
+      const mes = MESES_EN[m[1]], p = parseFloat(m[4].replace(/,/g, ''));
+      if (mes && p > 0) ps[m[3] + '-' + String(mes).padStart(2, '0') + '-' + m[2].padStart(2, '0')] = p;
+    }
+    return ps;
+  } catch (e) { return {}; }
 }
 async function cierres(simbolo, desde) {
   const p1 = Math.floor(Date.parse(desde + 'T00:00:00Z') / 1000) - 7 * 86400, p2 = Math.floor(Date.now() / 1000) + 86400;
@@ -64,6 +80,10 @@ export default {
       const c = await cierres(simbolo, desde);
       if (!c || !Object.keys(c.ps).length) return out({ error: 'Sin precios para ' + q }, 404);
       let moneda = c.moneda, ps = c.ps;
+      if (ISIN.test(q) && (moneda === 'EUR' || moneda === 'USD')) {   // fondo: completar con los días que Yahoo aún no tiene
+        const ult = Object.keys(ps).sort().pop(), ft = await ftUltimos(q, moneda);
+        for (const d of Object.keys(ft)) if (d > ult && ft[d] >= 5) ps[d] = ft[d];
+      }
       if (moneda !== 'EUR' && moneda !== 'USD') {
         const [base, f] = CENTIMOS[moneda] || [moneda, 1];
         const fx = await cierres(base + 'EUR=X', desde);
