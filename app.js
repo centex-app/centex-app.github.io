@@ -39,7 +39,7 @@ const isMonth = s => /^\d{4}-(0[1-9]|1[0-2])$/.test(String(s || ''));
 function niceStep(x) { if (x <= 0) return 10; const p = Math.pow(10, Math.floor(Math.log10(x))); const f = x / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; }
 const fmtAx = v => (v >= 1e6 ? (v / 1e6).toString().replace('.', ',') + ' M' : v >= 1000 ? (v / 1000).toString().replace('.', ',') + 'k' : v.toString().replace('.', ',')) + ' €';
 let toastT;
-function toast(m) { const t = $('#toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => (t.style.display = 'none'), 2800); }
+function toast(m) { const t = $('#toast'); t.textContent = m; t.style.pointerEvents = ''; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => (t.style.display = 'none'), 2800); }
 
 const CATS = ['Comida', 'Ocio', 'Transporte', 'Compras', 'Otros'];
 const catColor = c => 'var(--s' + (Math.max(CATS.indexOf(c), 0) + 1) + ')';
@@ -149,7 +149,7 @@ function cleanAp(a) {
 const cleanHabOff = a => [...new Set((Array.isArray(a) ? a : []).filter(k => typeof k === 'string' && k.includes('|')).map(k => k.slice(0, 120)))].slice(0, 300);
 const cleanHabMan = a => (Array.isArray(a) ? a : []).filter(x => x && String(x.desc || '').trim() && typeof x.cant === 'number' && isFinite(x.cant) && x.cant > 0).slice(0, 100)
   .map(x => ({ id: String(x.id || uid()).slice(0, 40), desc: String(x.desc).trim().slice(0, 80), cat: CATS.includes(x.cat) ? x.cat : 'Otros', cant: Math.round(x.cant * 100) / 100, pago: x.pago === 'Efectivo' ? 'Efectivo' : 'Tarjeta' }));
-const blank = () => ({ gastos: [], habOff: [], habMan: [], cartera: [], carteras: CART0(), fondos: [], seg: [], secciones: SECS0(), objetivos: [], ajustes: { tema: 'auto', ultimaCopia: null, cmp: '', refs: [], logos: true } });
+const blank = () => ({ gastos: [], habOff: [], habMan: [], cartera: [], carteras: CART0(), fondos: [], seg: [], secciones: SECS0(), objetivos: [], ajustes: { tema: 'auto', ultimaCopia: null, cmp: '', refs: [], vista: 'pct', logos: true } });
 function norm(o) {
   const b = blank(); o = o && typeof o === 'object' ? o : {};
   const seg = Array.isArray(o.seg) ? o.seg : [], cartera = Array.isArray(o.cartera) ? o.cartera : [];
@@ -447,19 +447,22 @@ async function loadVivo() {
     const nec = vNecesarios();
     Object.keys(VV).forEach(q => { if (!nec.has(q)) { delete VV[q]; cambio = true; } });   // lo que ya no sigues
     const toca = [...nec].filter(([q, d]) => { const v = VV[q]; return !v || Date.now() - v.t > (v.err ? V_ERR : V_FRESCO) || (!v.err && d < v.desde); });
-    for (const [q, desde] of toca.slice(0, 40)) {
+    // Se piden de 4 en 4 a la vez: con una cartera nueva, de uno en uno tardaría varios segundos por activo.
+    const cola = toca.slice(0, 40); let sinRed = false;
+    const pedir = async ([q, desde]) => {
       const v = VV[q] && !VV[q].err ? VV[q] : null, u = v && v.desde <= desde && vUlt(v);
       // Si ya está el historial, solo se piden los últimos días.
       const pide = u ? new Date(Date.parse(u + 'T00:00:00') - 7 * 864e5).toLocaleDateString('sv-SE') : desde;
       let r, j;
-      try { r = await fetch(API + '?q=' + encodeURIComponent(q) + '&desde=' + pide); j = await r.json().catch(() => null); } catch (e) { break; }   // sin conexión
+      try { r = await fetch(API + '?q=' + encodeURIComponent(q) + '&desde=' + pide); j = await r.json().catch(() => null); } catch (e) { sinRed = true; return; }
       if (r.ok && j && j.precios) {
         const ps = {}; for (const d of Object.keys(j.precios)) { const x = j.precios[d]; if (isDate(d) && typeof x === 'number' && isFinite(x) && x > 0) ps[d] = x; }
         VV[q] = { nombre: String(j.nombre || q).slice(0, 90), moneda: j.moneda === 'USD' ? 'USD' : 'EUR', precios: Object.assign(v ? v.precios : {}, ps), desde: v && v.desde < desde ? v.desde : desde, t: Date.now() };
         cambio = true;
       } else if (r.status === 400 || r.status === 404) { VV[q] = { err: String((j && j.error) || 'No encontrado').slice(0, 120), t: Date.now() }; cambio = true; }
       // Otros fallos (Yahoo no responde…): se reintenta la próxima vez que se abra la app.
-    }
+    };
+    await Promise.all([0, 1, 2, 3].map(async () => { while (cola.length && !sinRed) await pedir(cola.shift()); }));
   } finally { vRun = false; }
   if (!cambio) return;
   fpMemo.clear(); refMemo.clear(); if (resolver()) save();
@@ -575,29 +578,56 @@ function drawCompare(el, a, b) {
 function drawEvol(el, pts) {
   if (!el) return;
   if (pts.length < 2) { el.innerHTML = empty('La gráfica se verá en cuanto haya dos días con precio desde tu primera compra.'); return; }
-  const W = Math.max(el.clientWidth, 260), H = 230, L = 54, R = 74, T = 14, B = 28, iw = W - L - R, ih = H - T - B, n = pts.length;
-  const vs = pts.flatMap(p => (p.r != null ? [p.v, p.a, p.r] : [p.v, p.a])), mn = Math.min(...vs), mx = Math.max(...vs), span = Math.max(mx - mn, mx * 0.01, 1), step = niceStep(span / 3);
-  const lo = Math.max(0, Math.floor((mn - span * 0.1) / step) * step), top = Math.ceil((mx + span * 0.1) / step) * step;
-  const x = i => L + (iw * i) / (n - 1), y = v => T + ih - ((v - lo) / (top - lo)) * ih, last = pts[n - 1];
-  let s = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Valor de la cartera frente a lo aportado">';
-  for (let v = lo; v <= top + 1e-9; v += step) s += '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text x="' + (L - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + fmtAx(Math.round(v * 100) / 100) + '</text>';
-  const pv = pts.map((p, i) => (i ? 'L' : 'M') + x(i) + ' ' + y(p.v)).join(' ');
+  // En % se dibuja la rentabilidad de cada día (ganancia sobre lo aportado), alrededor del 0 %; en € el valor y lo aportado (escalones).
+  const enPct = D.ajustes.vista !== 'eur', ref = el.dataset.ref || '', hayR = pts.some(p => p.r != null);
+  const rp = (v, a) => (a > 0 ? ((v - a) / a) * 100 : 0), sV = p => (enPct ? rp(p.v, p.a) : p.v), sR = p => (p.r == null ? null : enPct ? rp(p.r, p.a) : p.r);
+  const W = Math.max(el.clientWidth, 260), H = 230, L = 54, R = 74, T = 14, B = 28, iw = W - L - R, ih = H - T - B, n = pts.length, last = pts[n - 1];
+  const vs = pts.flatMap(p => [sV(p), enPct ? 0 : p.a, sR(p)]).filter(v => v != null), mn = Math.min(...vs), mx = Math.max(...vs);
+  const span = Math.max(mx - mn, enPct ? 0.5 : Math.max(mx * 0.01, 1)), step = niceStep(span / 3);
+  const lo = enPct ? Math.floor((mn - span * 0.1) / step) * step : Math.max(0, Math.floor((mn - span * 0.1) / step) * step), top = Math.ceil((mx + span * 0.1) / step) * step;
+  const x = i => L + (iw * i) / (n - 1), y = v => T + ih - ((v - lo) / (top - lo)) * ih;
+  const fy = v => (enPct ? (v > 0.0001 ? '+' : v < -0.0001 ? '−' : '') + Math.abs(Math.round(v * 10) / 10).toLocaleString('es-ES') + ' %' : fmtAx(Math.round(v * 100) / 100));
+  let s = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" style="touch-action:pan-y" aria-label="' + (enPct ? 'Rentabilidad de la cartera' : 'Valor de la cartera frente a lo aportado') + '">';
+  for (let v = lo; v <= top + 1e-9; v += step) s += '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text x="' + (L - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + fy(v) + '</text>';
+  const pv = pts.map((p, i) => (i ? 'L' : 'M') + x(i) + ' ' + y(sV(p))).join(' ');
   const pa = pts.map((p, i) => (i ? 'H' + x(i) + ' V' + y(p.a) : 'M' + x(i) + ' ' + y(p.a))).join(' ');
-  let vuelta = ' L' + x(n - 1) + ' ' + y(last.a); for (let i = n - 1; i > 0; i--) vuelta += ' V' + y(pts[i - 1].a) + ' H' + x(i - 1);
-  s += '<path d="' + pv + vuelta + ' Z" style="fill:var(--' + (last.v >= last.a ? 'good' : 'bad') + ');opacity:.13;stroke:none"/>';
-  s += '<path d="' + pa + '" fill="none" style="stroke:var(--s2);stroke-width:2;stroke-dasharray:5 4"/>';
-  if (pts.some(p => p.r != null)) s += '<path d="' + pts.map((p, i) => (p.r == null ? '' : (i && pts[i - 1].r != null ? 'L' : 'M') + x(i) + ' ' + y(p.r))).join(' ') + '" fill="none" style="stroke:var(--s3);stroke-width:2;stroke-linejoin:round"/>';
+  if (enPct) {   // verde por encima del 0 %, rojo por debajo
+    const y0 = y(0), id = 'z' + uid(), area = pv + ' L' + x(n - 1) + ' ' + y0 + ' L' + x(0) + ' ' + y0 + ' Z';
+    s += '<defs><clipPath id="' + id + 'a"><rect x="0" y="0" width="' + W + '" height="' + y0 + '"/></clipPath><clipPath id="' + id + 'b"><rect x="0" y="' + y0 + '" width="' + W + '" height="' + Math.max(H - y0, 0) + '"/></clipPath></defs>';
+    s += '<path d="' + area + '" clip-path="url(#' + id + 'a)" style="fill:var(--good);opacity:.15;stroke:none"/><path d="' + area + '" clip-path="url(#' + id + 'b)" style="fill:var(--bad);opacity:.15;stroke:none"/>';
+    s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y0 + '" y2="' + y0 + '" style="stroke:var(--ink2);stroke-width:1"/>';
+  } else {
+    let vuelta = ' L' + x(n - 1) + ' ' + y(last.a); for (let i = n - 1; i > 0; i--) vuelta += ' V' + y(pts[i - 1].a) + ' H' + x(i - 1);
+    s += '<path d="' + pv + vuelta + ' Z" style="fill:var(--' + (last.v >= last.a ? 'good' : 'bad') + ');opacity:.13;stroke:none"/>';
+  }
+  if (hayR) s += '<path d="' + pts.map((p, i) => (p.r == null ? '' : (i && pts[i - 1].r != null ? 'L' : 'M') + x(i) + ' ' + y(sR(p)))).join(' ') + '" fill="none" style="stroke:var(--s3);stroke-width:2;stroke-linejoin:round"/>';
   s += '<path d="' + pv + '" fill="none" style="stroke:var(--s1);stroke-width:2.5;stroke-linejoin:round"/>';
-  s += '<circle cx="' + x(n - 1) + '" cy="' + y(last.v) + '" r="4.5" style="fill:var(--s1);stroke:var(--surface);stroke-width:2"/>';
-  pts.forEach((p, i) => {
-    const g = p.v - p.a, tip = dLabel(p.d) + '\nValor: ' + eur(p.v) + '\nAportado: ' + eur(p.a) + '\n' + (g >= 0 ? 'Ganancia: ' : 'Pérdida: ') + sgn(g) + eur(Math.abs(g)) + (p.r != null ? '\nCon el índice: ' + eur(p.r) : '');
-    s += '<rect x="' + (x(i) - iw / (n - 1) / 2) + '" y="' + T + '" width="' + iw / (n - 1) + '" height="' + ih + '" fill="transparent" data-tip="' + esc(tip) + '"/>';
-  });
+  // Lo aportado, por encima: el día de cada compra coincide con el valor y, si fuera debajo, quedaría tapado.
+  if (!enPct) s += '<path d="' + pa + '" fill="none" style="stroke:var(--s2);stroke-width:2;stroke-dasharray:6 4"/>';
+  s += '<circle cx="' + x(n - 1) + '" cy="' + y(sV(last)) + '" r="4.5" style="fill:var(--s1);stroke:var(--surface);stroke-width:2"/>';
   [0, Math.floor((n - 1) / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i).forEach(i => { s += '<text x="' + Math.min(Math.max(x(i), L + 20), W - R) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(dLabel(pts[i].d)) + '</text>'; });
-  let y1 = y(last.v) + 4, y2 = y(last.a) + 4;
-  if (Math.abs(y1 - y2) < 15) { if (y1 <= y2) { y1 -= 8; y2 += 8; } else { y1 += 8; y2 -= 8; } }
-  s += '<text class="val" x="' + (x(n - 1) + 11) + '" y="' + y1 + '">' + eur(Math.round(last.v), 0) + '</text><text x="' + (x(n - 1) + 11) + '" y="' + y2 + '">' + eur(Math.round(last.a), 0) + '</text>';
-  el.innerHTML = s + '</svg>';
+  const v2 = enPct ? sR(last) : last.a, t1 = enPct ? fy(sV(last)) : eur(Math.round(last.v), 0), t2 = v2 == null ? '' : enPct ? fy(v2) : eur(Math.round(v2), 0);
+  let y1 = y(sV(last)) + 4, y2 = v2 == null ? 0 : y(v2) + 4;
+  if (v2 != null && Math.abs(y1 - y2) < 15) { if (y1 <= y2) { y1 -= 8; y2 += 8; } else { y1 += 8; y2 -= 8; } }
+  s += '<text class="val" x="' + (x(n - 1) + 11) + '" y="' + y1 + '">' + t1 + '</text>' + (v2 != null ? '<text x="' + (x(n - 1) + 11) + '" y="' + y2 + '">' + t2 + '</text>' : '');
+  s += '<line class="cursor" x1="0" x2="0" y1="' + T + '" y2="' + (T + ih) + '" style="display:none"/>';
+  el.innerHTML = s + '</svg><div class="gtip" hidden></div>';
+  // Al tocar o arrastrar: el detalle del día más cercano.
+  const svg = el.querySelector('svg'), box = el.querySelector('.gtip'), cur = el.querySelector('.cursor');
+  const mostrar = ev => {
+    const r = svg.getBoundingClientRect(), i = Math.max(0, Math.min(n - 1, Math.round((((ev.clientX - r.left) * (W / r.width) - L) / iw) * (n - 1)))), p = pts[i];
+    cur.setAttribute('x1', x(i)); cur.setAttribute('x2', x(i)); cur.style.display = '';
+    const g = p.v - p.a, gp = rp(p.v, p.a);
+    let h = '<b>' + esc(dLabel(p.d)) + '</b><br>' + (hayR ? 'Tu cartera' : 'Valor') + ': ' + eur(p.v) + ' (' + pct(gp) + ')';
+    if (p.r != null) { const rr = rp(p.r, p.a), dif = p.v - p.r; h += '<br>' + esc(ref) + ': ' + eur(p.r) + ' (' + pct(rr) + ')<br>Diferencia: ' + (dif >= 0 ? '+' : '−') + eur(Math.abs(dif)) + ' · ' + (gp - rr >= 0 ? '+' : '−') + Math.abs(Math.round((gp - rr) * 10) / 10).toLocaleString('es-ES') + ' puntos'; }
+    else h += '<br>Aportado: ' + eur(p.a) + '<br>' + (g >= 0 ? 'Ganancia: +' : 'Pérdida: −') + eur(Math.abs(g));
+    box.innerHTML = h; box.hidden = false;
+    const bw = box.offsetWidth, cx = x(i) * (r.width / W);
+    box.style.left = Math.max(0, Math.min(cx - bw / 2, r.width - bw)) + 'px';
+  };
+  svg.addEventListener('pointerdown', mostrar);
+  svg.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' || e.buttons) mostrar(e); });
+  svg.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { box.hidden = true; cur.style.display = 'none'; } });
 }
 
 const shortEur = v => (v >= 1e6 ? (v / 1e6).toLocaleString('es-ES', { maximumFractionDigits: 1 }) + ' M €' : eur(Math.round(v), 0));
@@ -638,7 +668,7 @@ try {
 const persistEsc = () => { try { localStorage.setItem('centex.esc', JSON.stringify({ tipo: ui.escTipo, inm: ui.inm })); } catch (e) { /* no pasa nada */ } };
 const ROUTES = ['inicio', 'gastos', 'cartera', 'seguimiento', 'objetivos', 'escenarios', 'ajustes'];
 const NAV = [['inicio', 'Inicio', 'home'], ['gastos', 'Gastos', 'receipt'], ['cartera', 'Cartera', 'pie'], ['seguimiento', 'Seguimiento', 'trend'], ['objetivos', 'Objetivos', 'target'], ['escenarios', 'Escenarios', 'wave']];
-const FAB = { inicio: ['Nuevo gasto', 'addGasto'], gastos: ['Nuevo gasto', 'addGasto'], cartera: ['Añadir compra', 'addCompra'], seguimiento: ['Añadir', 'addSeg'], objetivos: ['Nuevo objetivo', 'addObj'] };
+const FAB = { inicio: ['Apuntar', 'rapido'], gastos: ['Nuevo gasto', 'addGasto'], cartera: ['Añadir compra', 'addCompra'], seguimiento: ['Añadir', 'addSeg'], objetivos: ['Nuevo objetivo', 'addObj'] };
 const fabOf = r => FAB[r];
 const route = () => { const r = (location.hash || '').replace(/^#\/?/, ''); return ROUTES.includes(r) ? r : 'inicio'; };
 
@@ -852,9 +882,12 @@ function evolBloque(fl, cmp, key, chartId) {
         (Math.abs(dif) < 0.005 ? 'Vas igual.' : 'Vas <b>' + eur(Math.abs(dif)) + (dif > 0 ? ' por delante' : ' por detrás') + '</b> de ' + n + '.') + '</p>';
     }
   }
-  return { serie, html: '<div class="card"><div class="card-head"><h2>' + (cmp ? 'Tu cartera frente a ' + esc(refNombre(cmp)) : 'Evolución') + '</h2></div>' +
+  const enPct = D.ajustes.vista !== 'eur';
+  return { serie, html: '<div class="card"><div class="card-head" style="align-items:center"><h2>' + (cmp ? 'Tu cartera frente a ' + esc(refNombre(cmp)) : 'Evolución') + '</h2>' +
+    '<div class="seg" role="group" aria-label="Ver en"><button data-act="gVista" data-v="pct" aria-pressed="' + enPct + '">%</button><button data-act="gVista" data-v="eur" aria-pressed="' + !enPct + '">€</button></div></div>' +
     (rangos.length > 1 ? '<div class="chips" role="group" aria-label="Periodo" style="margin-bottom:10px">' + rangos.map(r => '<button class="chip" style="text-transform:none" data-act="eRango" data-k="' + key + '" data-r="' + r[0] + '" aria-pressed="' + (ui[key] === r[0]) + '">' + r[1] + '</button>').join('') + '</div>' : '') +
-    '<div class="legend"><span><i style="background:var(--s1)"></i>' + (cmp ? 'Tu cartera' : 'Valor') + '</span><span><i style="background:var(--s2)"></i>Aportado</span>' + (cmp ? '<span><i style="background:var(--s3)"></i>' + esc(refNombre(cmp)) + '</span>' : '') + '</div><div class="chart" id="' + chartId + '"></div>' + per + cmpTxt + '</div>' };
+    '<div class="legend"><span><i style="background:var(--s1)"></i>' + (enPct ? (cmp ? 'Tu rentabilidad' : 'Rentabilidad') : cmp ? 'Tu cartera' : 'Valor') + '</span>' + (enPct ? '' : '<span><i style="background:var(--s2)"></i>Aportado</span>') + (cmp ? '<span><i style="background:var(--s3)"></i>' + esc(refNombre(cmp)) + '</span>' : '') + '</div>' +
+    '<div class="chart" id="' + chartId + '" data-ref="' + esc(cmp ? refNombre(cmp) : '') + '"></div><p class="sub" style="margin:6px 2px 0;font-size:12px">Toca la gráfica para ver el detalle de cada día.</p>' + per + cmpTxt + '</div>' };
 }
 function vCartera() {
   const cids = D.carteras.map(c => c.id), multi = cids.length > 1;
@@ -1420,7 +1453,7 @@ function sheetImport(data) {
 
 // «¿Ideas o algún fallo?»: el mensaje se envía a Formspree, que lo reenvía al correo de Centex. Va con la versión de la app y el tipo de móvil,
 // para entender los fallos; nunca con datos de la persona.
-const VERSION_APP = '1.19';
+const VERSION_APP = '1.20';
 const FORM_URL = 'https://formspree.io/f/mgaayjay';
 function sheetContacto() {
   openSheet('¿Ideas o algún fallo?',
@@ -1442,6 +1475,21 @@ function sheetContacto() {
     });
   setTimeout(() => { const i = $('#ctMsg'); if (i) i.focus(); }, 60);
 }
+// «+» de Inicio: apuntar cualquier cosa. Arriba, los gastos habituales con un solo toque (se apuntan hoy, con «Deshacer»).
+function sheetRapido() {
+  const m = mk(todayISO()), hs = habituales().map(h => Object.assign(h, { n: h.xs.filter(x => mk(x.fecha) === m).length })).sort((a, b) => b.n - a.n || b.xs.length - a.xs.length).slice(0, 6);
+  const opc = [['addGasto', 'receipt', 'Nuevo gasto', 'Cualquier cosa que hayas pagado'], ['addCompra', 'pie', 'Compra de un fondo', 'Una aportación o una venta en tu cartera'],
+    D.objetivos.length ? ['aportarRapido', 'target', 'Aportar a un objetivo', 'Lo que has guardado para una meta'] : ['addObj', 'target', 'Crear un objetivo', 'Una meta de ahorro: un viaje, un colchón…']];
+  openSheet('¿Qué quieres apuntar?',
+    '<div class="form">' + (hs.length ? '<div class="fld"><span class="lb">Tus gastos habituales, con un toque</span><div class="chips">' + hs.map(h => '<button type="button" class="chip" style="text-transform:none" data-act="habYa" data-k="' + esc(h.k) + '">' + catIcon(h.cat, true) + ' ' + esc(h.desc) + ' · ' + eur(h.cant) + '</button>').join('') + '</div></div>' : '') +
+    '<div class="list">' + opc.map(o => '<button type="button" class="item plain" style="grid-template-columns:auto 1fr" data-act="' + o[0] + '"><span class="badge" style="background:var(--surface2);color:var(--ink)">' + icon(o[1]) + '</span><span class="t"><b>' + o[2] + '</b><small>' + o[3] + '</small></span></button>').join('') + '</div></div>');
+}
+function sheetAportarRapido() {
+  if (D.objetivos.length === 1) { sheetAportar(D.objetivos[0].id); return; }
+  openSheet('¿A qué objetivo?', '<div class="form"><div class="list">' + D.objetivos.map(o => '<button type="button" class="item plain" data-act="aportar" data-id="' + esc(o.id) + '"><span class="t"><b>' + esc(o.nombre) + '</b><small>' + eur(o.ahorrado) + ' de ' + eur(o.meta, 0) + '</small></span><span class="r">' + Math.round(Math.min(100, (o.ahorrado / o.meta) * 100)) + ' %</span></button>').join('') + '</div></div>');
+}
+// Aviso con un botón (por ejemplo «Deshacer»); se va solo a los 5 segundos.
+function toastAccion(m, act, id) { const t = $('#toast'); t.innerHTML = esc(m) + ' <button class="link" style="color:inherit;text-decoration:underline;margin-left:6px" data-act="' + act + '" data-id="' + esc(id) + '">Deshacer</button>'; t.style.display = 'block'; t.style.pointerEvents = 'auto'; clearTimeout(toastT); toastT = setTimeout(() => (t.style.display = 'none'), 5000); }
 function sheetWipe() {
   openSheet('Borrar todo', '<div class="form"><p style="margin:0;font-weight:600">Se borrarán todos tus gastos, tu cartera, tu seguimiento y tus objetivos de este dispositivo. No se puede deshacer, salvo que tengas una copia de seguridad.</p>' +
     '<div class="sheet-actions"><button type="button" class="btn ghost" data-act="closeSheet">Cancelar</button><button type="button" class="btn danger" data-act="sheetDel" data-kind="all">Borrar todo</button></div></div>');
@@ -1473,6 +1521,14 @@ const ACT = {
   demoIn() { try { localStorage.setItem('centex.demo', JSON.stringify(demoData())); localStorage.setItem('centex.modo', 'demo'); } catch (e) { toast('No he podido abrir el modo de prueba'); return; } contar('modo-prueba'); location.hash = '#/inicio'; location.reload(); },
   demoOut() { try { localStorage.removeItem('centex.modo'); localStorage.removeItem('centex.demo'); } catch (e) { /* nada */ } location.hash = '#/inicio'; location.reload(); },
   contacto() { sheetContacto(); },
+  rapido() { sheetRapido(); }, aportarRapido() { sheetAportarRapido(); },
+  habYa(el) {
+    const h = habituales().find(x => x.k === el.dataset.k); if (!h) return;
+    const g = { id: uid(), fecha: todayISO(), desc: h.desc, cat: h.cat, cant: h.cant, pago: h.pago };
+    D.gastos.push(g); save(); closeSheet(); render(); toastAccion(h.desc + ' (' + eur(h.cant) + ') apuntado', 'deshacerGasto', g.id);
+  },
+  deshacerGasto(el) { D.gastos = D.gastos.filter(x => x.id !== el.dataset.id); save(); render(); toast('Deshecho'); },
+  gVista(el) { D.ajustes.vista = el.dataset.v === 'eur' ? 'eur' : 'pct'; save(); render(); },
   avisoOk() { D.ajustes.avisoCompras = false; save(); render(); }, eRango(el) { ui[el.dataset.k === 'kRango' ? 'kRango' : 'eRango'] = el.dataset.r; render(); },
   editGasto(el) { sheetGasto(el.dataset.id); }, editSeg(el) { sheetSeg(el.dataset.id); },
   editObj(el) { sheetObj(el.dataset.id); }, aportar(el) { sheetAportar(el.dataset.id); }, precios() { sheetPrecios(); },
