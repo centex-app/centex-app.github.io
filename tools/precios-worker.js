@@ -10,6 +10,7 @@
 //
 // Fondos: Yahoo publica su precio con 1-4 días de retraso. El Financial Times lo tiene antes, aunque solo con 2 decimales;
 // por eso se usa solo para los días que Yahoo aún no tiene y si el precio es de 5 o más (así el redondeo es menor del 0,1 %).
+// Solo con fondos de inversión (en Yahoo su código empieza por 0P): con ETF y acciones Yahoo va al día, y el FT a veces tarda mucho.
 //
 // Solo responde a la propia app (y a localhost, para probar): así otras webs no pueden gastar el cupo gratuito de Cloudflare.
 // Otras direcciones permitidas, si hacen falta, van en la variable ORIGENES_EXTRA de Cloudflare (separadas por comas), no aquí.
@@ -40,7 +41,7 @@ async function buscar(isin) {
 const MESES_EN = { January: 1, February: 2, March: 3, April: 4, May: 5, June: 6, July: 7, August: 8, September: 9, October: 10, November: 11, December: 12 };
 async function ftUltimos(isin, moneda) {   // último mes de precios del FT: {AAAA-MM-DD: precio}; si falla, vacío
   try {
-    const r = await fetch('https://markets.ft.com/data/funds/tearsheet/historical?s=' + isin + ':' + moneda, { headers: { 'user-agent': UA } });
+    const r = await fetch('https://markets.ft.com/data/funds/tearsheet/historical?s=' + isin + ':' + moneda, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(4000) });
     if (!r.ok) return {};
     const t = await r.text(), ps = {};
     for (const m of t.matchAll(/<span class="mod-ui-hide-small-below">\w+, (\w+) (\d{1,2}), (\d{4})<\/span>.*?<\/td><td>([\d.,]+)<\/td>/g)) {
@@ -80,7 +81,7 @@ export default {
       const c = await cierres(simbolo, desde);
       if (!c || !Object.keys(c.ps).length) return out({ error: 'Sin precios para ' + q }, 404);
       let moneda = c.moneda, ps = c.ps;
-      if (ISIN.test(q) && (moneda === 'EUR' || moneda === 'USD')) {   // fondo: completar con los días que Yahoo aún no tiene
+      if (ISIN.test(q) && /^0P/.test(simbolo) && (moneda === 'EUR' || moneda === 'USD')) {   // fondo: completar con los días que Yahoo aún no tiene
         const ult = Object.keys(ps).sort().pop(), ft = await ftUltimos(q, moneda);
         for (const d of Object.keys(ft)) if (d > ult && ft[d] >= 5) ps[d] = ft[d];
       }

@@ -658,7 +658,7 @@ function drawProj(el, rows) {
 }
 
 /* ---------- 5. pantallas ---------- */
-const ui = { gMes: null, q: '', segTipo: 'accion', cmpA: null, cmpB: null, cart: 'total', eRango: 'todo', kRango: 'todo', sim: null, escTipo: 'inv', inm: null };
+const ui = { gMes: null, q: '', segTipo: 'accion', cmpA: null, cmpB: null, cart: 'total', eRango: 'todo', kRango: 'todo', fPer: '1a', fichaQ: '', sim: null, escTipo: 'inv', inm: null };
 // Escenarios de inmueble: tiene muchos campos, así que se recuerda lo último que pusiste (aparte de tus datos y copias).
 const INM0 = { precio: '150000', impCompra: '4', otros: '2500', reforma: '0', ltv: '80', tipo: '3', plazo: '25', alquiler: '800', vacio: '1', gestion: '0', subida: '2', comunidad: '40', ibi: '300', seguro: '150', mant: '400', anios: '15', revalor: '2', gastosVenta: '4', impAlq: '20', impGan: '19', alt: '7' };
 try {
@@ -1085,6 +1085,87 @@ function libreHTML() {
     '<p class="sub" style="margin:8px 2px 0">En euros (lo que está en dólares se pasa con el cambio de cada día). Lo pasado no asegura lo que vendrá.</p></div>';
   return { html: elegir + grafica + tabla, after() { drawMulti($('#chLibre'), pts, filas.map(f => f.nombre)); } };
 }
+/* Ficha de un activo (lupa de arriba): cualquier fondo, acción o índice por ISIN o ticker, aunque no lo tengas.
+   Precio en su moneda, gráfica de 1 mes a 5 años, rentabilidad por periodos, media al año y peor caída,
+   y botones para seguirlo, compararlo o apuntarlo en tu cartera. Los datos se guardan solo mientras la app está abierta. */
+const FICHAS = new Map();
+async function fichaDatos(q) {
+  if (FICHAS.has(q)) return FICHAS.get(q);
+  let r, j;
+  try { r = await fetch(API + '?q=' + encodeURIComponent(q) + '&desde=' + libreDesde('5a')); j = await r.json().catch(() => null); } catch (e) { return { err: 'Sin conexión: inténtalo cuando tengas internet.' }; }
+  if (!r.ok || !j || !j.precios) return { err: (j && j.error) || 'No he podido traer sus precios. Prueba en un rato.' };
+  const precios = {}; Object.keys(j.precios).forEach(d => { const x = j.precios[d]; if (isDate(d) && typeof x === 'number' && isFinite(x) && x > 0) precios[d] = x; });
+  const f = { q, nombre: String(j.nombre || q).slice(0, 90), moneda: j.moneda === 'USD' ? 'USD' : 'EUR', yahoo: String(j.yahoo || ''), precios, ds: Object.keys(precios).sort() };
+  if (f.ds.length) FICHAS.set(q, f);
+  return f.ds.length ? f : { err: 'Sin precios para ' + q + '.' };
+}
+const fichaPer = (f, m) => {   // rentabilidad en los últimos m meses (null si el activo es más nuevo)
+  const ult = f.ds[f.ds.length - 1], ini = addM(mk(ult), -m) + ult.slice(7), b = buscaDesde(f, ini);
+  return b && f.ds[0] <= ini ? { b, tot: (f.precios[ult] / b.p - 1) * 100, dias: (Date.parse(ult) - Date.parse(b.f)) / 864e5 } : null;
+};
+function drawPrecio(el, f, desde) {
+  if (!el) return;
+  const ds = f.ds.filter(d => d >= desde), n = ds.length, ps = ds.map(d => f.precios[d]);
+  if (n < 2) { el.innerHTML = empty('Aún no hay suficientes precios para este periodo.'); return; }
+  const W = Math.max(el.clientWidth, 260), H = 210, L = 58, R = 16, T = 14, B = 28, iw = W - L - R, ih = H - T - B;
+  const mn = Math.min(...ps), mx = Math.max(...ps), span = Math.max(mx - mn, mx * 0.01), step = niceStep(span / 3);
+  const lo = Math.max(0, Math.floor((mn - span * 0.1) / step) * step), top = Math.ceil((mx + span * 0.1) / step) * step;
+  const x = i => L + (iw * i) / (n - 1), y = v => T + ih - ((v - lo) / (top - lo)) * ih, sube = ps[n - 1] >= ps[0];
+  let s = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" style="touch-action:pan-y" aria-label="Precio de ' + esc(f.nombre) + '">';
+  for (let v = lo; v <= top + 1e-9; v += step) s += '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text x="' + (L - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + money(Math.round(v * 100) / 100, f.moneda).replace(/,00(?=\s)/, '') + '</text>';
+  const linea = ps.map((v, i) => (i ? 'L' : 'M') + x(i) + ' ' + y(v)).join(' ');
+  s += '<path d="' + linea + ' L' + x(n - 1) + ' ' + (T + ih) + ' L' + x(0) + ' ' + (T + ih) + ' Z" style="fill:var(--' + (sube ? 'good' : 'bad') + ');opacity:.12;stroke:none"/>';
+  s += '<path d="' + linea + '" fill="none" style="stroke:var(--' + (sube ? 'good' : 'bad') + ');stroke-width:2.2;stroke-linejoin:round"/>';
+  [0, Math.floor((n - 1) / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i).forEach(i => { s += '<text x="' + Math.min(Math.max(x(i), L + 20), W - R - 20) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(dLabel(ds[i])) + '</text>'; });
+  s += '<line class="cursor" x1="0" x2="0" y1="' + T + '" y2="' + (T + ih) + '" style="display:none"/>';
+  el.innerHTML = s + '</svg><div class="gtip" hidden></div>';
+  const svg = el.querySelector('svg'), box = el.querySelector('.gtip'), cur = el.querySelector('.cursor');
+  const mostrar = ev => {
+    const r = svg.getBoundingClientRect(), i = Math.max(0, Math.min(n - 1, Math.round((((ev.clientX - r.left) * (W / r.width) - L) / iw) * (n - 1))));
+    cur.setAttribute('x1', x(i)); cur.setAttribute('x2', x(i)); cur.style.display = '';
+    box.innerHTML = '<b>' + esc(dLabel(ds[i])) + '</b><br>' + money(ps[i], f.moneda) + '<br>Desde el principio: ' + pct((ps[i] / ps[0] - 1) * 100); box.hidden = false;
+    const bw = box.offsetWidth, cx = x(i) * (r.width / W); box.style.left = Math.max(0, Math.min(cx - bw / 2, r.width - bw)) + 'px';
+  };
+  svg.addEventListener('pointerdown', mostrar);
+  svg.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' || e.buttons) mostrar(e); });
+  svg.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { box.hidden = true; cur.style.display = 'none'; } });
+}
+function fichaHTML(f) {
+  const ult = f.ds[f.ds.length - 1], ant = f.ds[f.ds.length - 2], hoy = f.precios[ult], dia = ant ? (hoy / f.precios[ant] - 1) * 100 : null;
+  const per = L_PER.find(x => x[0] === ui.fPer) || L_PER[2], ini = addM(mk(ult), -per[2]) + ult.slice(7), sel = fichaPer(f, per[2]);
+  const dsP = f.ds.filter(d => d >= ini); let pico = 0, caida = 0; dsP.forEach(d => { const v = f.precios[d]; if (v > pico) pico = v; caida = Math.min(caida, v / pico - 1); });
+  const esIsin = isIsin(f.q), sigue = D.seg.some(x => vKey(x.ticker) === f.q), tiene = esIsin && D.fondos.some(fo => fo.isin === f.q);
+  const chip = (lab, r) => '<div class="fchip"><small>' + lab + '</small><b class="' + (r == null ? '' : r.tot >= 0 ? 'dn-t' : 'up-t') + '">' + (r == null ? '—' : pct(r.tot)) + '</b></div>';
+  return '<div class="form"><div><div class="sub" style="margin:0">' + esc(f.q) + (f.yahoo && f.yahoo !== f.q ? ' · ' + esc(f.yahoo) : '') + (f.moneda === 'USD' ? ' · en dólares' : '') + '</div>' +
+      '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:4px"><b style="font-size:28px;letter-spacing:-.02em" class="num">' + money(hoy, f.moneda) + '</b>' +
+      (dia != null ? '<span class="pill ' + (dia >= 0 ? 'good' : 'bad') + '">' + (dia >= 0 ? '▲ ' : '▼ ') + pct(dia) + '</span>' : '') + '</div><div class="sub" style="margin:2px 0 0">Precio del ' + esc(dLabel(ult)) + '</div></div>' +
+    '<div class="chips" role="group" aria-label="Periodo">' + L_PER.map(x => '<button type="button" class="chip" style="text-transform:none" data-act="fichaPer" data-r="' + x[0] + '" aria-pressed="' + (per[0] === x[0]) + '">' + x[1] + '</button>').join('') + '</div>' +
+    '<div class="chart" id="chFicha"></div>' +
+    '<div class="fchips">' + chip('1 mes', fichaPer(f, 1)) + chip('6 meses', fichaPer(f, 6)) + chip('1 año', fichaPer(f, 12)) + chip('3 años', fichaPer(f, 36)) + chip('5 años', fichaPer(f, 60)) + '</div>' +
+    '<p class="sub" style="margin:0">En ' + per[1] + ': ' + (sel ? (sel.dias >= 300 ? 'media al año ' + pct((Math.pow(1 + sel.tot / 100, 365 / sel.dias) - 1) * 100) + ' · ' : '') : 'no hay datos de todo el periodo · ') + 'peor caída ' + pct(caida * 100) + '. Lo pasado no asegura lo que vendrá.</p>' +
+    '<div class="btn-row"><button type="button" class="btn sm' + (sigue ? ' ghost' : '') + '" data-act="fichaSeguir" data-q="' + esc(f.q) + '">' + (sigue ? 'Ya lo sigues' : 'Seguir') + '</button><button type="button" class="btn sm ghost" data-act="fichaComparar" data-q="' + esc(f.q) + '">Comparar</button>' +
+      (esIsin ? '<button type="button" class="btn sm ghost" data-act="fichaTengo" data-q="' + esc(f.q) + '">' + (tiene ? 'Apuntar compra' : 'Lo tengo') + '</button>' : '') + '</div></div>';
+}
+async function sheetFicha(q) {
+  q = vKey(q); ui.fichaQ = q;
+  const f0 = FICHAS.get(q);
+  openSheet(f0 ? f0.nombre : 'Buscando…', f0 ? fichaHTML(f0) : '<div class="form"><p class="sub" style="margin:0">Buscando «' + esc(q) + '» y sus precios de los últimos 5 años…</p></div>');
+  if (f0) { drawPrecio($('#chFicha'), f0, fichaIni(f0)); return; }
+  const f = await fichaDatos(q);
+  if (ui.fichaQ !== q || !$('#sheet').open) return;   // mientras tanto se ha cerrado o se ha buscado otra cosa
+  if (f.err) { openSheet('No lo encuentro', '<div class="form"><p style="margin:0">' + esc(f.err) + '</p><p class="sub" style="margin:0">Un fondo se busca por su ISIN (por ejemplo IE00B4L5Y983); una acción, por su ticker (AAPL, o BME:ITX si no es de EE. UU.).</p><button type="button" class="btn sm ghost" style="align-self:flex-start" data-act="buscar">Buscar otro</button></div>'); return; }
+  openSheet(f.nombre, fichaHTML(f)); drawPrecio($('#chFicha'), f, fichaIni(f));
+}
+const fichaIni = f => { const per = L_PER.find(x => x[0] === ui.fPer) || L_PER[2], ult = f.ds[f.ds.length - 1]; return addM(mk(ult), -per[2]) + ult.slice(7); };
+function sheetBuscar() {
+  const cands = [...new Set(REFS0.map(r => r[0]).concat(D.fondos.map(fo => vKey(fo.isin)).filter(Boolean), D.seg.map(x => vKey(x.ticker)).filter(Boolean)))].slice(0, 16);
+  openSheet('Buscar',
+    '<div class="form"><div class="fld"><label for="bQ">Fondo, acción o índice</label><input id="bQ" name="q" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ISIN o ticker: IE00B4L5Y983, AAPL…" style="text-transform:uppercase"><span class="help">Un fondo, por su ISIN. Una acción, por su ticker (con la bolsa delante si no es de EE. UU.: BME:ITX).</span></div>' +
+    (cands.length ? '<div class="fld"><span class="lb">O mira uno de los tuyos</span><div class="chips" style="flex-wrap:wrap;overflow:visible">' + cands.map(q => '<button type="button" class="chip" style="text-transform:none" data-act="ficha" data-q="' + esc(q) + '">' + esc(refNombre(q)) + '</button>').join('') + '</div></div>' : '') +
+    actions('', 'Buscar') + '</div>',
+    fd => { const q = vKey(fd.get('q')); if (!/^[A-Z0-9.\-^=:]{1,24}$/.test(q)) return 'Escribe un ISIN o un ticker.'; sheetFicha(q); return ''; });
+  setTimeout(() => { const i = $('#bQ'); if (i) i.focus(); }, 60);
+}
 // Añadir un activo a «Comparar activos»: por ISIN o ticker, o tocando uno de los que ya conoces.
 function sheetLibreAdd() {
   const L = libreCfg(), cands = [...new Set(REFS0.map(r => r[0]).concat((D.ajustes.refs || []).map(r => r.q), D.fondos.map(fo => vKey(fo.isin)).filter(Boolean), D.seg.map(x => vKey(x.ticker)).filter(Boolean)))].filter(q => !L.qs.includes(q)).slice(0, 14);
@@ -1290,6 +1371,7 @@ function sheetSeg(id) {
     '<div class="fld"><label for="sFecha">Fecha de entrada</label><input id="sFecha" name="fecha" type="date" value="' + esc(v.fecha || '') + '"></div>' +
     '<div class="fld"><label for="sWeb">Web de la empresa (opcional)</label><input id="sWeb" name="web" maxlength="80" autocomplete="off" inputmode="url" placeholder="qualcomm.com" value="' + esc(v.web || '') + '"><span class="help">Solo sirve para encontrar su logo. Si sale bien sin ponerla, déjala vacía.</span></div>' +
     '<div class="fld"><label for="sMotivo">Motivo corto</label><input id="sMotivo" name="motivo" maxlength="400" autocomplete="off" value="' + esc(v.motivo) + '"></div>' +
+    (p && p.ticker ? '<button type="button" class="btn sm ghost" style="align-self:flex-start" data-act="ficha" data-q="' + esc(vKey(p.ticker)) + '">' + icon('search') + 'Ver su ficha</button>' : '') +
     actions(p ? delBtn('seg', id) : '', p ? 'Guardar' : 'Añadir') + '</div>',
     fd => {
       const nombre = String(fd.get('nombre') || '').trim(), grupo = String(fd.get('grupo') || '').trim();
@@ -1319,6 +1401,7 @@ function sheetFondo(id, pre) {
       '<div class="fld"><span class="lb">Aportación periódica</span>' + (p ? '<span class="help" style="margin:0 0 6px">' + eur(p.imp) + ' el día ' + p.dia + ' de cada mes, desde el ' + esc(dLabel(p.desde)) + (p.hasta ? (p.hasta < hoy ? '; terminó el ' : ' hasta el ') + esc(dLabel(p.hasta)) : '') + '.</span>' : '<span class="help" style="margin:0 0 6px">Si inviertes lo mismo cada mes, la app puede apuntar sola cada compra.</span>') +
       '<button type="button" class="btn sm ghost" data-act="editPlan" data-f="' + esc(fo.id) + '" style="align-self:flex-start">' + (p ? 'Cambiar' : 'Configurar') + '</button></div>'
       : '<span class="help">Después de añadirlo podrás apuntar sus compras.</span>') +
+    (fo && fo.isin ? '<button type="button" class="btn sm ghost" style="align-self:flex-start" data-act="ficha" data-q="' + esc(fo.isin) + '">' + icon('search') + 'Ver su ficha</button>' : '') +
     actions(fo ? delBtn('fondo', id) : '', fo ? 'Guardar' : 'Añadir fondo') + '</div>',
     fd => {
       const isin = String(fd.get('isin') || '').trim().toUpperCase(), cc = String(fd.get('cart') || ''); let nombre = String(fd.get('nombre') || '').trim().slice(0, 60);
@@ -1541,7 +1624,7 @@ function sheetImport(data) {
 
 // «¿Ideas o algún fallo?»: el mensaje se envía a Formspree, que lo reenvía al correo de Centex. Va con la versión de la app y el tipo de móvil,
 // para entender los fallos; nunca con datos de la persona.
-const VERSION_APP = '1.21';
+const VERSION_APP = '1.22';
 const FORM_URL = 'https://formspree.io/f/mgaayjay';
 function sheetContacto() {
   openSheet('¿Ideas o algún fallo?',
@@ -1620,6 +1703,21 @@ const ACT = {
   libreAdd() { sheetLibreAdd(); }, libreElegir(el) { closeSheet(); libreMeter(el.dataset.q); },
   libreQuitar(el) { const L = libreCfg(); D.ajustes.libre = { qs: L.qs.filter(q => q !== el.dataset.q), per: L.per }; save(); render(); },
   librePer(el) { const L = libreCfg(); D.ajustes.libre = { qs: L.qs, per: el.dataset.r }; save(); render(); loadVivo(); },
+  buscar() { sheetBuscar(); }, ficha(el) { sheetFicha(el.dataset.q); },
+  fichaPer(el) { ui.fPer = el.dataset.r; const f = FICHAS.get(ui.fichaQ); if (f) { $('#sheetBody').innerHTML = fichaHTML(f); drawPrecio($('#chFicha'), f, fichaIni(f)); } },
+  fichaSeguir(el) {
+    const q = el.dataset.q, f = FICHAS.get(q); if (!f) return;
+    if (D.seg.some(x => vKey(x.ticker) === q)) { closeSheet(); location.hash = '#/seguimiento'; return; }
+    const tipo = isIsin(q) && D.secciones.some(x => x.id === 'fondo') ? 'fondo' : D.secciones.some(x => x.id === 'accion') ? 'accion' : D.secciones[0].id;
+    D.seg.push({ id: uid(), tipo, grupo: 'Sin clasificar', nombre: f.nombre.slice(0, 80), ticker: q, web: '', fecha: todayISO(), precioEntrada: f.precios[f.ds[f.ds.length - 1]], precioActual: null, motivo: '' });
+    ui.segTipo = tipo; save(); closeSheet(); location.hash = '#/seguimiento'; render(); toast('Añadido a Seguimiento, con el precio de hoy como entrada'); setTimeout(loadVivo, 50);
+  },
+  fichaComparar(el) { const L = libreCfg(), q = el.dataset.q; if (!L.qs.includes(q)) L.qs = L.qs.slice(0, 3).concat([q]); D.ajustes.libre = { qs: L.qs, per: L.per }; D.ajustes.cmpModo = 'activos'; ui.escTipo = 'cmp'; persistEsc(); save(); closeSheet(); location.hash = '#/escenarios'; render(); setTimeout(loadVivo, 50); },
+  fichaTengo(el) {
+    const q = el.dataset.q, f = FICHAS.get(q); let fo = D.fondos.find(x => x.isin === q);
+    if (!fo) { const c = D.carteras.some(x => x.id === ui.cart) ? ui.cart : D.carteras[0].id; fo = { id: 'f_' + uid(), isin: q, nombre: (f ? f.nombre : q).slice(0, 60), c, compras: [], plan: null }; D.fondos.push(fo); save(); render(); setTimeout(loadVivo, 50); }
+    sheetCompra(null, fo.id);
+  },
   gVista(el) { D.ajustes.vista = el.dataset.v === 'eur' ? 'eur' : 'pct'; save(); render(); },
   avisoOk() { D.ajustes.avisoCompras = false; save(); render(); }, eRango(el) { ui[el.dataset.k === 'kRango' ? 'kRango' : 'eRango'] = el.dataset.r; render(); },
   editGasto(el) { sheetGasto(el.dataset.id); }, editSeg(el) { sheetSeg(el.dataset.id); },
@@ -1727,6 +1825,8 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
 
 $('#navItems').innerHTML = NAV.map(n => '<a class="nav-link" data-r="' + n[0] + '" href="#/' + n[0] + '">' + icon(n[2]) + '<span>' + n[1] + '</span></a>').join('');
 $('#gearTop').innerHTML = icon('sliders');
+$('#lupaTop').innerHTML = icon('search');
+$('#lupaSide').innerHTML = icon('search') + '<span>Buscar</span>';
 $('#gearSide').innerHTML = icon('sliders') + '<span>Ajustes</span>';
 $('#sheetX').innerHTML = icon('x');
 $('#fabIc').innerHTML = icon('plus');
