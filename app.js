@@ -149,7 +149,7 @@ function cleanAp(a) {
 const cleanHabOff = a => [...new Set((Array.isArray(a) ? a : []).filter(k => typeof k === 'string' && k.includes('|')).map(k => k.slice(0, 120)))].slice(0, 300);
 const cleanHabMan = a => (Array.isArray(a) ? a : []).filter(x => x && String(x.desc || '').trim() && typeof x.cant === 'number' && isFinite(x.cant) && x.cant > 0).slice(0, 100)
   .map(x => ({ id: String(x.id || uid()).slice(0, 40), desc: String(x.desc).trim().slice(0, 80), cat: CATS.includes(x.cat) ? x.cat : 'Otros', cant: Math.round(x.cant * 100) / 100, pago: x.pago === 'Efectivo' ? 'Efectivo' : 'Tarjeta' }));
-const blank = () => ({ gastos: [], habOff: [], habMan: [], cartera: [], carteras: CART0(), fondos: [], seg: [], secciones: SECS0(), objetivos: [], ajustes: { tema: 'auto', ultimaCopia: null, cmp: '', refs: [], vista: 'pct', logos: true } });
+const blank = () => ({ gastos: [], habOff: [], habMan: [], cartera: [], carteras: CART0(), fondos: [], seg: [], secciones: SECS0(), objetivos: [], ajustes: { tema: 'auto', ultimaCopia: null, cmp: '', refs: [], vista: 'pct', cmpModo: 'cartera', libre: { qs: ['EUNL.DE', 'SXR8.DE'], per: '1a' }, logos: true } });
 function norm(o) {
   const b = blank(); o = o && typeof o === 'object' ? o : {};
   const seg = Array.isArray(o.seg) ? o.seg : [], cartera = Array.isArray(o.cartera) ? o.cartera : [];
@@ -434,15 +434,18 @@ function vNecesarios() {
   const add = (q, desde) => { q = vKey(q); if (!/^[A-Z0-9.\-^=:]{1,24}$/.test(q)) return; const d = isDate(desde) && desde < mes ? desde : mes; if (!out.has(q) || d < out.get(q)) out.set(q, d); };
   D.fondos.forEach(fo => { if (fo.isin) add(fo.isin, fo.compras.map(c => c.f).sort()[0]); });
   D.seg.forEach(x => { if (x.ticker) add(x.ticker, x.fecha); });
-  const primera = D.fondos.flatMap(fo => fo.compras.map(c => c.f)).sort()[0], cmps = [D.ajustes.cmp].filter(Boolean);
+  const primera = D.fondos.flatMap(fo => fo.compras.map(c => c.f)).sort()[0], cmps = [D.ajustes.cmp].filter(Boolean), L = D.ajustes.cmpModo === 'activos' ? libreCfg() : { qs: [], per: '1a' };   // los de «Activos», solo si se usa
+  L.qs.forEach(q => add(q, libreDesde(L.per)));
   cmps.forEach(q => add(q, primera));
   if (cmps.some(q => !REFS0.some(r => r[0] === q))) add('EURUSD=X', primera);
+  if (L.qs.length) add('EURUSD=X', libreDesde(L.per));
   return out;
 }
-let vRun = false;
+let vRun = false, vOtraVez = false;
 async function loadVivo() {
-  if (vRun || navigator.onLine === false) return;
-  vRun = true; let cambio = false;
+  if (navigator.onLine === false) return;
+  if (vRun) { vOtraVez = true; return; }   // ya está pidiendo: al terminar, vuelve a mirar qué falta
+  vRun = true; vOtraVez = false; let cambio = false;
   try {
     const nec = vNecesarios();
     Object.keys(VV).forEach(q => { if (!nec.has(q)) { delete VV[q]; cambio = true; } });   // lo que ya no sigues
@@ -463,7 +466,7 @@ async function loadVivo() {
       // Otros fallos (Yahoo no responde…): se reintenta la próxima vez que se abra la app.
     };
     await Promise.all([0, 1, 2, 3].map(async () => { while (cola.length && !sinRed) await pedir(cola.shift()); }));
-  } finally { vRun = false; }
+  } finally { vRun = false; if (vOtraVez) setTimeout(loadVivo, 0); }
   if (!cambio) return;
   fpMemo.clear(); refMemo.clear(); if (resolver()) save();
   try { localStorage.setItem(VKEY, JSON.stringify(VV)); } catch (e) { /* sin sitio: se vuelve a pedir */ }
@@ -1018,9 +1021,94 @@ function inmFormHTML() {
   return '<p class="sub" style="padding:0 2px;font-size:14px;color:var(--ink2)">Los números de abajo son un ejemplo: cámbialos por los de la vivienda que estés mirando. Se guardan en este móvil para la próxima vez.</p><div id="escForm" role="group" aria-label="Datos del inmueble" style="display:flex;flex-direction:column;gap:14px">' + grupos + '</div><div id="escOut" style="display:flex;flex-direction:column;gap:14px"></div>';
 }
 // Escenarios → Comparar: tu cartera (todas las carteras) frente a un índice, con lo mismo invertido los mismos días, y cada fondo frente a ese índice.
+/* Escenarios → Comparar → Activos: hasta 4 fondos, acciones o índices cualesquiera (no hace falta tenerlos), en euros.
+   Todos empiezan en 0 % el primer día del periodo; debajo, rentabilidad, media al año, peor caída y lo que valdrían 1.000 €. */
+const L_PER = [['1m', '1 mes', 1], ['6m', '6 meses', 6], ['1a', '1 año', 12], ['3a', '3 años', 36], ['5a', '5 años', 60]];
+function libreCfg() {
+  const l = D.ajustes.libre || {}, qs = (Array.isArray(l.qs) ? l.qs : []).map(vKey).filter(q => /^[A-Z0-9.\-^=:]{1,24}$/.test(q));
+  return { qs: [...new Set(qs)].slice(0, 4), per: L_PER.some(x => x[0] === l.per) ? l.per : '1a' };
+}
+const libreDesde = per => { const m = (L_PER.find(x => x[0] === per) || L_PER[2])[2], h = todayISO(); return addM(mk(h), -m) + h.slice(7); };
+function libreDatos() {
+  const L = libreCfg(), ini = libreDesde(L.per), filas = L.qs.map(q => {
+    const ser = refSerie(q), r = { q, nombre: refNombre(q), err: VV[q] && VV[q].err };
+    if (!ser || !ser.ds.length || (VV[q] && VV[q].desde > ini)) return r;   // sin precios, o aún llegando el historial del periodo elegido
+    const b = buscaDesde(ser, ini) || (ser.ds[0] <= todayISO() && ser.ds[0] > ini ? { f: ser.ds[0], p: ser.precios[ser.ds[0]] } : null); if (!b) return r;
+    const ds = ser.ds.filter(d => d >= b.f), last = ser.precios[ds[ds.length - 1]], tot = last / b.p - 1, dias = (Date.parse(ds[ds.length - 1]) - Date.parse(b.f)) / 864e5;
+    let pico = b.p, caida = 0; ds.forEach(d => { const p = ser.precios[d]; if (p > pico) pico = p; caida = Math.min(caida, p / pico - 1); });
+    return Object.assign(r, { ser, base: b, desde: b.f, tot: tot * 100, anual: dias >= 300 ? (Math.pow(1 + tot, 365 / dias) - 1) * 100 : null, caida: caida * 100, mil: 1000 * (1 + tot), parcial: b.f > ini });
+  });
+  const ok = filas.filter(f => f.ser), dias = [...new Set(ok.flatMap(f => f.ser.ds.filter(d => d >= f.base.f)))].sort();
+  const pts = dias.map(d => ({ d, v: filas.map(f => { if (!f.ser || d < f.base.f) return null; const pa = buscaAntes(f.ser, d); return pa ? (pa.p / f.base.p - 1) * 100 : null; }) }));
+  return { L, filas, pts };
+}
+function drawMulti(el, pts, nombres) {
+  if (!el) return;
+  if (pts.length < 2) { el.innerHTML = empty('Cuando lleguen los precios, aquí verás cómo ha ido cada uno.'); return; }
+  const W = Math.max(el.clientWidth, 260), H = 230, L = 54, R = 16, T = 14, B = 28, iw = W - L - R, ih = H - T - B, n = pts.length;
+  const vs = pts.flatMap(p => p.v).filter(v => v != null).concat([0]), mn = Math.min(...vs), mx = Math.max(...vs), span = Math.max(mx - mn, 0.5), step = niceStep(span / 3);
+  const lo = Math.floor((mn - span * 0.1) / step) * step, top = Math.ceil((mx + span * 0.1) / step) * step;
+  const x = i => L + (iw * i) / (n - 1), y = v => T + ih - ((v - lo) / (top - lo)) * ih, fy = v => (v > 0.0001 ? '+' : v < -0.0001 ? '−' : '') + Math.abs(Math.round(v * 10) / 10).toLocaleString('es-ES') + ' %';
+  let s = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" style="touch-action:pan-y" aria-label="Rentabilidad de cada activo en el periodo">';
+  for (let v = lo; v <= top + 1e-9; v += step) s += '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text x="' + (L - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + fy(v) + '</text>';
+  s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(0) + '" y2="' + y(0) + '" style="stroke:var(--ink2);stroke-width:1"/>';
+  nombres.forEach((_, j) => { s += '<path d="' + pts.map((p, i) => (p.v[j] == null ? '' : (i && pts[i - 1].v[j] != null ? 'L' : 'M') + x(i) + ' ' + y(p.v[j]))).join(' ') + '" fill="none" style="stroke:var(--s' + (j + 1) + ');stroke-width:2.2;stroke-linejoin:round"/>'; });
+  [0, Math.floor((n - 1) / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i).forEach(i => { s += '<text x="' + Math.min(Math.max(x(i), L + 20), W - R - 20) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(dLabel(pts[i].d)) + '</text>'; });
+  s += '<line class="cursor" x1="0" x2="0" y1="' + T + '" y2="' + (T + ih) + '" style="display:none"/>';
+  el.innerHTML = s + '</svg><div class="gtip" hidden></div>';
+  const svg = el.querySelector('svg'), box = el.querySelector('.gtip'), cur = el.querySelector('.cursor');
+  const mostrar = ev => {
+    const r = svg.getBoundingClientRect(), i = Math.max(0, Math.min(n - 1, Math.round((((ev.clientX - r.left) * (W / r.width) - L) / iw) * (n - 1)))), p = pts[i];
+    cur.setAttribute('x1', x(i)); cur.setAttribute('x2', x(i)); cur.style.display = '';
+    let h = '<b>' + esc(dLabel(p.d)) + '</b>' + nombres.map((nm, j) => '<br><span style="color:var(--s' + (j + 1) + ')">●</span> ' + esc(nm) + ': ' + (p.v[j] == null ? '—' : pct(p.v[j]))).join('');
+    if (nombres.length === 2 && p.v[0] != null && p.v[1] != null) { const d = p.v[0] - p.v[1]; h += '<br>Diferencia: ' + (d >= 0 ? '+' : '−') + Math.abs(Math.round(d * 10) / 10).toLocaleString('es-ES') + ' puntos'; }
+    box.innerHTML = h; box.hidden = false;
+    const bw = box.offsetWidth, cx = x(i) * (r.width / W);
+    box.style.left = Math.max(0, Math.min(cx - bw / 2, r.width - bw)) + 'px';
+  };
+  svg.addEventListener('pointerdown', mostrar);
+  svg.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' || e.buttons) mostrar(e); });
+  svg.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { box.hidden = true; cur.style.display = 'none'; } });
+}
+function libreHTML() {
+  const { L, filas, pts } = libreDatos();
+  const elegir = '<div class="card"><p class="sub" style="margin:0 0 10px">Compara fondos, acciones o índices aunque no los tengas: cuánto habría ganado alguien que invierte en euros en cada uno.</p>' +
+    '<div class="chips" style="flex-wrap:wrap;overflow:visible">' + L.qs.map((q, j) => '<button class="chip" style="text-transform:none" data-act="libreQuitar" data-q="' + esc(q) + '" aria-label="Quitar ' + esc(refNombre(q)) + '"><i class="dot" style="background:var(--s' + (j + 1) + ')"></i>' + esc(refNombre(q)) + ' ×</button>').join('') +
+    (L.qs.length < 4 ? '<button class="chip" style="text-transform:none" data-act="libreAdd">+ Añadir</button>' : '') + '</div>' +
+    '<div class="chips" role="group" aria-label="Periodo" style="margin-top:8px">' + L_PER.map(x => '<button class="chip" style="text-transform:none" data-act="librePer" data-r="' + x[0] + '" aria-pressed="' + (L.per === x[0]) + '">' + x[1] + '</button>').join('') + '</div></div>';
+  if (!L.qs.length) return { html: elegir + '<div class="card"><p class="sub" style="margin:0">Añade un fondo, una acción o un índice para empezar.</p></div>', after() {} };
+  const grafica = '<div class="card"><div class="card-head"><h2>Desde ' + esc(dLabel(libreDesde(L.per))) + '</h2></div><div class="legend">' + filas.map((f, j) => '<span><i style="background:var(--s' + (j + 1) + ')"></i>' + esc(f.nombre) + '</span>').join('') + '</div>' +
+    '<div class="chart" id="chLibre"></div><p class="sub" style="margin:6px 2px 0;font-size:12px">Todos empiezan en 0 %. Toca la gráfica para ver el detalle de cada día.</p></div>';
+  const tabla = '<div class="card"><div class="card-head"><h2>Resultado</h2></div><div class="list">' + filas.map((f, j) => '<div class="item plain"><span class="t"><b><i class="dot" style="background:var(--s' + (j + 1) + ')"></i>' + esc(f.nombre) + '</b><small>' +
+    (f.err ? 'No encuentro «' + esc(f.q) + '»: revisa el ISIN o el ticker' : f.tot == null ? 'Cargando sus precios…' : (f.anual != null ? 'Media al año: ' + pct(f.anual) + ' · ' : '') + 'Peor caída: ' + pct(f.caida) + (f.parcial ? ' · solo desde ' + esc(dLabel(f.desde)) : '')) + '</small></span>' +
+    '<span class="r">' + (f.tot == null ? '—' : '<span class="' + (f.tot >= 0 ? 'dn-t' : 'up-t') + '">' + pct(f.tot) + '</span><small>1.000 € → ' + eur(f.mil, 0) + '</small>') + '</span></div>').join('') + '</div>' +
+    '<p class="sub" style="margin:8px 2px 0">En euros (lo que está en dólares se pasa con el cambio de cada día). Lo pasado no asegura lo que vendrá.</p></div>';
+  return { html: elegir + grafica + tabla, after() { drawMulti($('#chLibre'), pts, filas.map(f => f.nombre)); } };
+}
+// Añadir un activo a «Comparar activos»: por ISIN o ticker, o tocando uno de los que ya conoces.
+function sheetLibreAdd() {
+  const L = libreCfg(), cands = [...new Set(REFS0.map(r => r[0]).concat((D.ajustes.refs || []).map(r => r.q), D.fondos.map(fo => vKey(fo.isin)).filter(Boolean), D.seg.map(x => vKey(x.ticker)).filter(Boolean)))].filter(q => !L.qs.includes(q)).slice(0, 14);
+  openSheet('Añadir para comparar',
+    '<div class="form"><div class="fld"><label for="lQ">ISIN o ticker</label><input id="lQ" name="q" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="IE00B4L5Y983, AAPL, BME:ITX…" style="text-transform:uppercase"><span class="help">Un fondo por su ISIN; una acción por su ticker (con la bolsa delante si no es de EE. UU.: BME:ITX).</span></div>' +
+    (cands.length ? '<div class="fld"><span class="lb">O elige uno</span><div class="chips" style="flex-wrap:wrap;overflow:visible">' + cands.map(q => '<button type="button" class="chip" style="text-transform:none" data-act="libreElegir" data-q="' + esc(q) + '">' + esc(refNombre(q)) + '</button>').join('') + '</div></div>' : '') +
+    actions('', 'Añadir') + '</div>',
+    fd => {
+      const q = vKey(fd.get('q'));
+      if (!/^[A-Z0-9.\-^=:]{1,24}$/.test(q)) return 'Pon un ISIN o un ticker, o toca uno de la lista.';
+      libreMeter(q);
+    });
+  setTimeout(() => { const i = $('#lQ'); if (i) i.focus(); }, 60);
+}
+function libreMeter(q) { const L = libreCfg(); if (!L.qs.includes(q)) L.qs.push(q); D.ajustes.libre = { qs: L.qs.slice(0, 4), per: L.per }; save(); render(); setTimeout(loadVivo, 50); }
 function cmpHTML() {
+  const modo = D.ajustes.cmpModo === 'activos' ? 'activos' : 'cartera';
+  const seg = '<div><div class="seg" role="group" aria-label="Qué comparar"><button data-act="cmpModo" data-v="cartera" aria-pressed="' + (modo === 'cartera') + '">Mi cartera</button><button data-act="cmpModo" data-v="activos" aria-pressed="' + (modo === 'activos') + '">Activos</button></div></div>';
+  const C = modo === 'activos' ? libreHTML() : cmpCartera();
+  return { html: seg + C.html, after: C.after };
+}
+function cmpCartera() {
   const fl = D.fondos, T = totalFondos(fl);
-  if (!T.n) return { serie: [], html: '<div class="card"><h2>Compara tu cartera con un índice</h2><p class="sub" style="margin:0">Primero apunta tus fondos y sus compras en <a class="link" href="#/cartera">Cartera</a>. Después verás aquí si lo estás haciendo mejor o peor que el MSCI World o el S&P 500.</p></div>' };
+  if (!T.n) return { after() {}, html: '<div class="card"><h2>Compara tu cartera con un índice</h2><p class="sub" style="margin:0">Primero apunta tus fondos y sus compras en <a class="link" href="#/cartera">Cartera</a>. Después verás aquí si lo estás haciendo mejor o peor que el MSCI World o el S&P 500.</p></div>' };
   if (!D.ajustes.cmp) { D.ajustes.cmp = REFS0[0][0]; save(); setTimeout(loadVivo, 50); }
   const cmp = D.ajustes.cmp, EV = evolBloque(fl, cmp, 'kRango', 'chCmp'), hoy = todayISO(), n = esc(refNombre(cmp));
   const sel = '<div class="card"><p class="sub" style="margin:0 0 10px">¿Y si cada compra la hubieras hecho el mismo día, con los mismos euros, en un índice? Así ves si tu cartera lo está haciendo mejor o peor.' + (D.carteras.length > 1 ? ' Cuenta todas tus carteras.' : '') + '</p>' +
@@ -1031,13 +1119,13 @@ function cmpHTML() {
     return '<div class="item plain"><span class="t"><b>' + esc(fNombre(x.fo)) + '</b><small>' + (x.v == null ? refEstado(cmp) : 'Tu fondo ' + eur(x.i.val) + ' · con ' + n + ' ' + eur(x.v)) + '</small></span><span class="r">' +
       (dif == null ? '—' : '<span class="' + (dif >= 0 ? 'dn-t' : 'up-t') + '">' + (dif >= 0 ? '▲ ' : '▼ ') + eur(Math.abs(dif)) + '</span><small>' + (dif >= 0 ? 'por delante' : 'por detrás') + '</small>') + '</span></div>';
   }).join('') + '</div></div>';
-  return { serie: EV.serie, html: sel + EV.html + lista };
+  return { after() { drawEvol($('#chCmp'), EV.serie); }, html: sel + EV.html + lista };
 }
 function vEsc() {
   const tipo = ['inm', 'cmp'].includes(ui.escTipo) ? ui.escTipo : 'inv';
   const seg = '<div><div class="seg" role="group" aria-label="Tipo de escenario"><button data-act="escTipo" data-t="inv" aria-pressed="' + (tipo === 'inv') + '">Inversión</button><button data-act="escTipo" data-t="inm" aria-pressed="' + (tipo === 'inm') + '">Inmueble</button><button data-act="escTipo" data-t="cmp" aria-pressed="' + (tipo === 'cmp') + '">Comparar</button></div></div>';
-  const sub = tipo === 'inm' ? 'Mira si te sale a cuenta comprar una vivienda para alquilarla' : tipo === 'cmp' ? 'Tu cartera frente a un índice' : 'Calcula cómo podría crecer tu dinero';
-  if (tipo === 'cmp') { const C = cmpHTML(); return { html: '<div class="page">' + vh('Escenarios', sub, 'escenarios') + seg + C.html + '</div>', after() { drawEvol($('#chCmp'), C.serie); } }; }
+  const sub = tipo === 'inm' ? 'Mira si te sale a cuenta comprar una vivienda para alquilarla' : tipo === 'cmp' ? 'Tu cartera frente a un índice, o unos activos frente a otros' : 'Calcula cómo podría crecer tu dinero';
+  if (tipo === 'cmp') { const C = cmpHTML(); return { html: '<div class="page">' + vh('Escenarios', sub, 'escenarios') + seg + C.html + '</div>', after: C.after }; }
   return { html: '<div class="page">' + vh('Escenarios', sub, 'escenarios') + seg + (tipo === 'inm' ? inmFormHTML() : invFormHTML()) + '</div>', after() { renderEsc(); } };
 }
 function readEsc() {
@@ -1453,7 +1541,7 @@ function sheetImport(data) {
 
 // «¿Ideas o algún fallo?»: el mensaje se envía a Formspree, que lo reenvía al correo de Centex. Va con la versión de la app y el tipo de móvil,
 // para entender los fallos; nunca con datos de la persona.
-const VERSION_APP = '1.20';
+const VERSION_APP = '1.21';
 const FORM_URL = 'https://formspree.io/f/mgaayjay';
 function sheetContacto() {
   openSheet('¿Ideas o algún fallo?',
@@ -1528,6 +1616,10 @@ const ACT = {
     D.gastos.push(g); save(); closeSheet(); render(); toastAccion(h.desc + ' (' + eur(h.cant) + ') apuntado', 'deshacerGasto', g.id);
   },
   deshacerGasto(el) { D.gastos = D.gastos.filter(x => x.id !== el.dataset.id); save(); render(); toast('Deshecho'); },
+  cmpModo(el) { D.ajustes.cmpModo = el.dataset.v === 'activos' ? 'activos' : 'cartera'; save(); render(); loadVivo(); },
+  libreAdd() { sheetLibreAdd(); }, libreElegir(el) { closeSheet(); libreMeter(el.dataset.q); },
+  libreQuitar(el) { const L = libreCfg(); D.ajustes.libre = { qs: L.qs.filter(q => q !== el.dataset.q), per: L.per }; save(); render(); },
+  librePer(el) { const L = libreCfg(); D.ajustes.libre = { qs: L.qs, per: el.dataset.r }; save(); render(); loadVivo(); },
   gVista(el) { D.ajustes.vista = el.dataset.v === 'eur' ? 'eur' : 'pct'; save(); render(); },
   avisoOk() { D.ajustes.avisoCompras = false; save(); render(); }, eRango(el) { ui[el.dataset.k === 'kRango' ? 'kRango' : 'eRango'] = el.dataset.r; render(); },
   editGasto(el) { sheetGasto(el.dataset.id); }, editSeg(el) { sheetSeg(el.dataset.id); },
