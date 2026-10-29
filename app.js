@@ -703,7 +703,9 @@ function demoData() {
     ajustes: { tema: 'auto', ultimaCopia: todayISO(), logos: true, cmp: 'EUNL.DE', refs: [] }
   };
 }
-const demoBanner = () => '<div class="banner" style="background:var(--s1);color:#fff"><span><b>Modo de prueba:</b> son datos de ejemplo. Lo que cambies aquí no toca tus datos.</span><button class="btn sm" style="background:#fff;color:#111" data-act="demoOut">Salir</button></div>';
+// «Ocultar» quita el aviso (por ejemplo, para grabar vídeos) hasta salir del modo de prueba; en Ajustes sigue diciendo que son datos de ejemplo.
+const demoOculto = () => { try { return localStorage.getItem('centex.demoOculto') === '1'; } catch (e) { return false; } };
+const demoBanner = () => demoOculto() ? '' : '<div class="banner" style="background:var(--s1);color:#fff"><span><b>Modo de prueba:</b> son datos de ejemplo. Lo que cambies aquí no toca tus datos.</span><div class="btn-row"><button class="btn sm" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.6)" data-act="demoOcultar">Ocultar</button><button class="btn sm" style="background:#fff;color:#111" data-act="demoOut">Salir</button></div></div>';
 function vInicio() {
   const has = D.gastos.length || D.fondos.length || D.seg.length || D.objetivos.length;
   const hoy = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -1307,7 +1309,7 @@ function vAjustes() {
     '<div class="card set"><div class="setrow"><div><b>¿Ideas o algún fallo?</b><p>Cuéntanos qué mejorarías o qué no funciona. Leemos todo.</p></div><button class="btn sm ghost" data-act="contacto">Escribir</button></div></div>' +
     '<div class="card"><h2>Tenerla como una app</h2>' + (standalone ? '<p class="sub" style="margin-bottom:0">Ya estás usando Centex como app.</p>' :
       '<p class="sub">Añádela a tu pantalla de inicio y se abrirá a pantalla completa.</p><ol class="steps"><li><b>iPhone (Safari):</b> botón compartir → «Añadir a pantalla de inicio».</li><li><b>Android (Chrome):</b> menú ⋮ → «Instalar aplicación» o «Añadir a pantalla de inicio».</li></ol>') + '</div>' +
-    '<p style="text-align:center;color:var(--muted);font-size:12.5px;font-weight:600;padding:6px">Centex · versión ' + VERSION_APP + ' · 28 oct 2026</p></div>' };
+    '<p style="text-align:center;color:var(--muted);font-size:12.5px;font-weight:600;padding:6px">Centex · versión ' + VERSION_APP + ' · 29 oct 2026</p></div>' };
 }
 
 const VIEWS = { inicio: vInicio, gastos: vGastos, cartera: vCartera, seguimiento: vSeg, objetivos: vObj, escenarios: vEsc, ajustes: vAjustes };
@@ -1624,7 +1626,7 @@ function sheetImport(data) {
 
 // «¿Ideas o algún fallo?»: el mensaje se envía a Formspree, que lo reenvía al correo de Centex. Va con la versión de la app y el tipo de móvil,
 // para entender los fallos; nunca con datos de la persona.
-const VERSION_APP = '1.22';
+const VERSION_APP = '1.23';
 const FORM_URL = 'https://formspree.io/f/mgaayjay';
 function sheetContacto() {
   openSheet('¿Ideas o algún fallo?',
@@ -1689,8 +1691,9 @@ const ACT = {
   fab() { const f = fabOf(route()); if (f) ACT[f[1]](); },
   addGasto() { sheetGasto(); }, addSeg() { sheetSeg(); }, addObj() { sheetObj(); },
   addCompra(el) { sheetCompra(null, el && el.dataset.f); }, editCompra(el) { sheetCompra(el.dataset.id, el.dataset.f); }, editPlan(el) { sheetPlan(el.dataset.f); },
-  demoIn() { try { localStorage.setItem('centex.demo', JSON.stringify(demoData())); localStorage.setItem('centex.modo', 'demo'); } catch (e) { toast('No he podido abrir el modo de prueba'); return; } contar('modo-prueba'); location.hash = '#/inicio'; location.reload(); },
-  demoOut() { try { localStorage.removeItem('centex.modo'); localStorage.removeItem('centex.demo'); } catch (e) { /* nada */ } location.hash = '#/inicio'; location.reload(); },
+  demoIn() { try { localStorage.setItem('centex.demo', JSON.stringify(demoData())); localStorage.setItem('centex.modo', 'demo'); localStorage.removeItem('centex.demoOculto'); } catch (e) { toast('No he podido abrir el modo de prueba'); return; } contar('modo-prueba'); location.hash = '#/inicio'; location.reload(); },
+  demoOcultar() { try { localStorage.setItem('centex.demoOculto', '1'); } catch (e) { /* nada */ } render(); toast('Aviso oculto. Para salir del modo de prueba, ve a Ajustes'); },
+  demoOut() { try { localStorage.removeItem('centex.modo'); localStorage.removeItem('centex.demo'); localStorage.removeItem('centex.demoOculto'); } catch (e) { /* nada */ } location.hash = '#/inicio'; location.reload(); },
   contacto() { sheetContacto(); },
   rapido() { sheetRapido(); }, aportarRapido() { sheetAportarRapido(); },
   habYa(el) {
