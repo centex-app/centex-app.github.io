@@ -658,7 +658,7 @@ function drawProj(el, rows) {
 }
 
 /* ---------- 5. pantallas ---------- */
-const ui = { gMes: null, q: '', segTipo: 'accion', cmpA: null, cmpB: null, cart: 'total', eRango: 'todo', kRango: 'todo', fPer: '1a', fichaQ: '', sim: null, escTipo: 'inv', inm: null };
+const ui = { gMes: null, q: '', gTodos: false, segTipo: 'accion', cmpA: null, cmpB: null, cart: 'total', eRango: 'todo', kRango: 'todo', fPer: '1a', fichaQ: '', sim: null, escTipo: 'inv', inm: null };
 // Escenarios de inmueble: tiene muchos campos, así que se recuerda lo último que pusiste (aparte de tus datos y copias).
 const INM0 = { precio: '150000', impCompra: '4', otros: '2500', reforma: '0', ltv: '80', tipo: '3', plazo: '25', alquiler: '800', vacio: '1', gestion: '0', subida: '2', comunidad: '40', ibi: '300', seguro: '150', mant: '400', anios: '15', revalor: '2', gastosVenta: '4', impAlq: '20', impGan: '19', alt: '7' };
 try {
@@ -784,22 +784,29 @@ function gListHTML() {
   list.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
   const tot = list.reduce((s, x) => s + x.cant, 0);
   let summary = '';
-  if (list.length) {
-    const by = CATS.map(c => [c, list.filter(x => x.cat === c).reduce((s, x) => s + x.cant, 0)]).filter(a => a[1] > 0).sort((a, b) => b[1] - a[1]);
-    summary = '<div class="card"><div class="total-line"><b>' + eur(tot) + '</b><span>' + list.length + ' gasto' + (list.length > 1 ? 's' : '') + '</span></div>' +
-      '<div class="splitbar" aria-hidden="true">' + by.map(a => '<span style="width:' + (a[1] / tot) * 100 + '%;background:' + catColor(a[0]) + '"></span>').join('') + '</div>' +
-      '<div class="splitleg">' + by.map(a => '<div><span>' + catIcon(a[0], true) + a[0] + '</span><span class="num">' + eur(a[1]) + ' <em>' + Math.round((a[1] / tot) * 100) + '%</em></span></div>').join('') + '</div></div>';
-  }
+  if (list.length) summary = '<div class="card"><div class="total-line"><b>' + eur(tot) + '</b><span>' + list.length + ' gasto' + (list.length > 1 ? 's' : '') + '</span></div>' + catReparto(list, tot) + '</div>';
   let body;
   if (!list.length) body = empty(D.gastos.length ? 'No hay gastos con ese filtro. Prueba otro mes o borra la búsqueda.' : 'Aún no hay gastos. Toca + para apuntar el primero.');
   else {
-    const days = [...new Set(list.map(x => x.fecha))];
+    // Plegada: los 5 últimos (acabando el día, para que el total del día cuadre); al buscar, todos.
+    let vis = list;
+    if (!q && !ui.gTodos && list.length > G_VISIBLES) { const dia = list[G_VISIBLES - 1].fecha; vis = list.filter((x, i) => i < G_VISIBLES || x.fecha === dia); }
+    const resto = list.length - vis.length, days = [...new Set(vis.map(x => x.fecha))];
     body = '<div class="card"><div class="list">' + days.map(d => {
-      const items = list.filter(x => x.fecha === d), dt = items.reduce((s, x) => s + x.cant, 0);
+      const items = vis.filter(x => x.fecha === d), dt = items.reduce((s, x) => s + x.cant, 0);
       return '<div class="day"><span>' + esc(dayHead(d)) + '</span><span class="num">' + eur(dt) + '</span></div>' + items.map(gastoRowHTML).join('');
-    }).join('') + '</div></div>';
+    }).join('') + '</div>' +
+      (resto ? '<button class="btn sm ghost" style="width:100%;margin-top:10px" data-act="gTodos">Ver ' + (resto === 1 ? 'el gasto restante' : 'los ' + resto + ' gastos restantes') + '</button>'
+        : !q && ui.gTodos && list.length > G_VISIBLES ? '<button class="btn sm ghost" style="width:100%;margin-top:10px" data-act="gTodos">Ver menos</button>' : '') + '</div>';
   }
   return summary + body;
+}
+const G_VISIBLES = 5;
+// Barra de colores y lista de lo gastado en cada categoría (resumen del mes y total entre dos fechas).
+function catReparto(list, tot) {
+  const by = CATS.map(c => [c, list.filter(x => x.cat === c).reduce((s, x) => s + x.cant, 0)]).filter(a => a[1] > 0).sort((a, b) => b[1] - a[1]);
+  return '<div class="splitbar" aria-hidden="true">' + by.map(a => '<span style="width:' + (a[1] / tot) * 100 + '%;background:' + catColor(a[0]) + '"></span>').join('') + '</div>' +
+    '<div class="splitleg">' + by.map(a => '<div><span>' + catIcon(a[0], true) + a[0] + '</span><span class="num">' + eur(a[1]) + ' <em>' + Math.round((a[1] / tot) * 100) + '%</em></span></div>').join('') + '</div>';
 }
 const gBadge = cat => '<span class="badge" style="background:color-mix(in srgb,' + catColor(cat) + ' 18%,var(--surface))">' + catIcon(cat) + '</span>';
 function habCard() {
@@ -864,7 +871,7 @@ function vGastos() {
     habCard() +
     '<div class="search">' + icon('search') + '<input id="q" type="search" placeholder="Buscar por descripción o categoría" value="' + esc(ui.q) + '" aria-label="Buscar gastos" autocomplete="off"></div>' +
     '<div id="gList" style="display:flex;flex-direction:column;gap:14px">' + gListHTML() + '</div>' +
-    '<details class="card"><summary>Total entre dos fechas</summary><div class="body"><div class="row2"><div class="fld"><label for="rDesde">Desde</label><input id="rDesde" type="date"></div><div class="fld"><label for="rHasta">Hasta</label><input id="rHasta" type="date"></div></div><p id="rTotal" style="font-size:14px;color:var(--ink2)">Elige las dos fechas.</p></div></details></div>';
+    '<details class="card"><summary>Total entre dos fechas</summary><div class="body"><div class="row2"><div class="fld"><label for="rDesde">Desde</label><input id="rDesde" type="date"></div><div class="fld"><label for="rHasta">Hasta</label><input id="rHasta" type="date"></div></div><div id="rTotal" style="font-size:14px;color:var(--ink2)">Elige las dos fechas.</div></div></details></div>';
   return { html };
 }
 
@@ -1626,7 +1633,7 @@ function sheetImport(data) {
 
 // «¿Ideas o algún fallo?»: el mensaje se envía a Formspree, que lo reenvía al correo de Centex. Va con la versión de la app y el tipo de móvil,
 // para entender los fallos; nunca con datos de la persona.
-const VERSION_APP = '1.23.1';
+const VERSION_APP = '1.24';
 const FORM_URL = 'https://formspree.io/f/mgaayjay';
 function sheetContacto() {
   openSheet('¿Ideas o algún fallo?',
@@ -1726,7 +1733,8 @@ const ACT = {
   editGasto(el) { sheetGasto(el.dataset.id); }, editSeg(el) { sheetSeg(el.dataset.id); },
   editObj(el) { sheetObj(el.dataset.id); }, aportar(el) { sheetAportar(el.dataset.id); }, precios() { sheetPrecios(); },
   goSettings() { location.hash = '#/ajustes'; }, closeSheet() { closeSheet(); }, wipe() { sheetWipe(); },
-  gMes(el) { ui.gMes = el.dataset.m; render(); },
+  gMes(el) { ui.gMes = el.dataset.m; ui.gTodos = false; render(); },
+  gTodos() { ui.gTodos = !ui.gTodos; $('#gList').innerHTML = gListHTML(); },
   addFondo() { sheetFondo(); }, editFondo(el) { sheetFondo(el.dataset.id); },
   habVer(el) { sheetHab(el.dataset.k); },
   habAdd(el) { const h = habituales().find(x => x.k === el.dataset.k); if (h) sheetGasto(null, { desc: h.desc, cat: h.cat, cant: h.cant, pago: h.pago }); },
@@ -1791,7 +1799,17 @@ function rango() {
   if (!d || !h) { out.textContent = 'Elige las dos fechas.'; return; }
   if (d > h) { out.textContent = 'La fecha de inicio es posterior a la final.'; return; }
   const l = D.gastos.filter(x => x.fecha >= d && x.fecha <= h), t = l.reduce((s, x) => s + x.cant, 0);
-  out.innerHTML = 'Del ' + esc(dLabel(d)) + ' al ' + esc(dLabel(h)) + ': <b>' + eur(t) + '</b> en ' + l.length + ' gasto' + (l.length === 1 ? '' : 's');
+  const frase = 'Del ' + esc(dLabel(d)) + ' al ' + esc(dLabel(h)) + ': <b>' + eur(t) + '</b> en ' + l.length + ' gasto' + (l.length === 1 ? '' : 's');
+  if (!l.length) { out.innerHTML = frase + '.'; return; }
+  const dias = Math.round((Date.parse(h) - Date.parse(d)) / 864e5) + 1, cara = l.reduce((a, x) => (x.cant > a.cant ? x : a));
+  // Lo que más se repite: mismo nombre (sin mirar mayúsculas), al menos 2 veces; los 3 primeros.
+  const rep = {};
+  l.forEach(x => { const n = (x.desc || x.cat).trim(), k = n.toLowerCase(); (rep[k] = rep[k] || { n, v: 0, t: 0 }).v++; rep[k].t += x.cant; });
+  const top = Object.values(rep).filter(r => r.v > 1).sort((a, b) => b.v - a.v || b.t - a.t).slice(0, 3);
+  const fila = (n, det, b) => '<div class="rango-f"><span><b>' + n + '</b><em>&nbsp;· ' + det + '</em></span><span class="num">' + b + '</span></div>';
+  out.innerHTML = '<p style="margin:0 0 12px">' + frase + (dias > 1 ? ' · <b>' + eur(t / dias) + '</b> al día' : '') + '.</p>' + catReparto(l, t) +
+    '<h3 class="rango-h">Compra más cara</h3><div class="splitleg">' + fila(esc(cara.desc || cara.cat), esc(dLabel(cara.fecha)), eur(cara.cant)) + '</div>' +
+    (top.length ? '<h3 class="rango-h">Lo que más repites</h3><div class="splitleg">' + top.map(r => fila(esc(r.n), r.v + ' veces', eur(r.t))).join('') + '</div>' : '');
 }
 $('#sheetForm').addEventListener('submit', e => {
   e.preventDefault();

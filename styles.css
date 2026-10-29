@@ -215,6 +215,8 @@ button.link{background:none;border:0;padding:0;cursor:pointer}
 .splitleg div>span:first-child{white-space:nowrap}
 .splitleg div{display:flex;justify-content:space-between;gap:8px}
 .splitleg em{font-style:normal;color:var(--ink2);font-weight:600}
+.rango-h{margin:16px 0 8px;font-size:13px;font-weight:800;color:var(--ink2);text-transform:uppercase;letter-spacing:.04em}
+.rango-f,.rango-f>span:first-child{min-width:0}.rango-f b{font-weight:inherit;min-width:0;overflow:hidden;text-overflow:ellipsis}.rango-f em,.rango-f .num{flex-shrink:0}
 .total-line{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 .total-line b{font-size:26px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .total-line span{color:var(--ink2);font-size:13px;font-weight:600}

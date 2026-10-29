@@ -1,6 +1,6 @@
 /* Service worker de Centex: guarda los archivos de la app para que abra rápido y también sin internet.
    Si cambias algo de la app, sube el número de VERSION para que los móviles se actualicen. */
-const VERSION = 'centex-v1.23.1';
+const VERSION = 'centex-v1.24';
 const SHELL = [
   './', './index.html', './styles.css', './app.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'
