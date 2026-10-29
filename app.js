@@ -1626,7 +1626,7 @@ function sheetImport(data) {
 
 // «¿Ideas o algún fallo?»: el mensaje se envía a Formspree, que lo reenvía al correo de Centex. Va con la versión de la app y el tipo de móvil,
 // para entender los fallos; nunca con datos de la persona.
-const VERSION_APP = '1.23';
+const VERSION_APP = '1.23.1';
 const FORM_URL = 'https://formspree.io/f/mgaayjay';
 function sheetContacto() {
   openSheet('¿Ideas o algún fallo?',
@@ -1813,6 +1813,11 @@ function showTip(e) {
 }
 document.addEventListener('mousemove', showTip);
 document.addEventListener('touchstart', showTip, { passive: true });
+// Detalle de las gráficas: en el móvil no hay «quitar el ratón», así que se cierra al tocar fuera de la gráfica.
+document.addEventListener('pointerdown', e => document.querySelectorAll('.gtip:not([hidden])').forEach(b => {
+  const g = b.parentElement; if (g.contains(e.target)) return;
+  b.hidden = true; const c = g.querySelector('.cursor'); if (c) c.style.display = 'none';
+}));
 let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(render, 150); });
 // Contador de visitas anónimo (GoatCounter, sin cookies). Solo cuenta qué pantallas se abren, nunca datos.
 function contar(evento) { try { if (window.goatcounter && window.goatcounter.count) window.goatcounter.count(evento ? { path: evento, event: true } : { path: '/' + route() }); } catch (e) { /* sin contador */ } }
