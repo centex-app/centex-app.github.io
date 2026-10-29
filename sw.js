@@ -1,9 +1,10 @@
 /* Service worker de Centex: guarda los archivos de la app para que abra rápido y también sin internet.
    Si cambias algo de la app, sube el número de VERSION para que los móviles se actualicen. */
-const VERSION = 'centex-v1.24';
+const VERSION = 'centex-v1.25';
 const SHELL = [
   './', './index.html', './styles.css', './app.js', './manifest.webmanifest',
-  './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'
+  './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
+  './icons/cat/comida.png', './icons/cat/ocio.png', './icons/cat/transporte.png', './icons/cat/compras.png', './icons/cat/otros.png'
 ];
 
 // La versión nueva se descarga siempre de GitHub, no de la caché del navegador (que guarda los archivos hasta 10 minutos).

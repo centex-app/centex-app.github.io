@@ -63,8 +63,9 @@ const ICON = {
 };
 const icon = n => '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">' + ICON[n] + '</svg>';
 // Icono de cada categoría de gasto, del color de la categoría. sm = versión pequeña para textos y formularios.
-const CAT_ICON = { Comida: 'pizza', Ocio: 'ticket', Transporte: 'bus', Compras: 'bag', Otros: 'dots' };
-const catIcon = (c, sm) => '<svg class="ic' + (sm ? ' sm' : '') + '" style="color:' + catColor(c) + '" viewBox="0 0 24 24" aria-hidden="true">' + ICON[CAT_ICON[c] || 'dots'] + '</svg>';
+// Iconos 3D de cada categoría (Fluent Emoji de Microsoft, licencia MIT: icons/cat/LICENSE.txt).
+const CAT_ICON = { Comida: 'comida', Ocio: 'ocio', Transporte: 'transporte', Compras: 'compras', Otros: 'otros' };
+const catIcon = (c, sm) => '<img class="ic cat' + (sm ? ' sm' : '') + '" src="icons/cat/' + (CAT_ICON[c] || 'otros') + '.png" alt="" aria-hidden="true">';
 
 /* ---------- 2. datos ---------- */
 // En el modo de prueba se usa otro almacén (centex.demo): los datos de verdad (centex.v1) no se tocan.
@@ -774,7 +775,7 @@ const bkpBanner = () => (backupDue() ? '<div class="banner"><span>' + (D.ajustes
 
 function gastoRowHTML(x) {
   const c = catColor(x.cat);
-  return '<button class="item" data-act="editGasto" data-id="' + esc(x.id) + '"><span class="badge" style="background:color-mix(in srgb,' + c + ' 18%,var(--surface))">' + catIcon(x.cat) + '</span>' +
+  return '<button class="item" data-act="editGasto" data-id="' + esc(x.id) + '"><span class="badge" style="background:color-mix(in srgb,' + c + ' 28%,var(--surface))">' + catIcon(x.cat) + '</span>' +
     '<span class="t"><b>' + esc(x.desc || x.cat) + '</b><small>' + esc(x.cat) + ' · ' + esc(x.pago) + '</small></span><span class="r">' + eur(x.cant) + '</span></button>';
 }
 function gListHTML() {
@@ -808,7 +809,7 @@ function catReparto(list, tot) {
   return '<div class="splitbar" aria-hidden="true">' + by.map(a => '<span style="width:' + (a[1] / tot) * 100 + '%;background:' + catColor(a[0]) + '"></span>').join('') + '</div>' +
     '<div class="splitleg">' + by.map(a => '<div><span>' + catIcon(a[0], true) + a[0] + '</span><span class="num">' + eur(a[1]) + ' <em>' + Math.round((a[1] / tot) * 100) + '%</em></span></div>').join('') + '</div>';
 }
-const gBadge = cat => '<span class="badge" style="background:color-mix(in srgb,' + catColor(cat) + ' 18%,var(--surface))">' + catIcon(cat) + '</span>';
+const gBadge = cat => '<span class="badge" style="background:color-mix(in srgb,' + catColor(cat) + ' 28%,var(--surface))">' + catIcon(cat) + '</span>';
 function habCard() {
   const hs = habituales(), m = ui.gMes;
   const per = m === 'todos' ? 'en total' : m === mk(todayISO()) ? 'este mes' : 'en ' + monthName(m);
@@ -1633,7 +1634,7 @@ function sheetImport(data) {
 
 // «¿Ideas o algún fallo?»: el mensaje se envía a Formspree, que lo reenvía al correo de Centex. Va con la versión de la app y el tipo de móvil,
 // para entender los fallos; nunca con datos de la persona.
-const VERSION_APP = '1.24';
+const VERSION_APP = '1.25';
 const FORM_URL = 'https://formspree.io/f/mgaayjay';
 function sheetContacto() {
   openSheet('¿Ideas o algún fallo?',
